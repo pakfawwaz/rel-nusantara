@@ -6,10 +6,13 @@ bergerak mengikuti rel yang kamu bangun.
 
 ## Main
 
+Deploy: push ke `main` otomatis deploy ke Heroku (`server.js`, tanpa dependency; data dikirim ter-gzip).
+
+Lokal tanpa Node:
 ```
 powershell -ExecutionPolicy Bypass -File serve.ps1
 ```
-lalu buka http://localhost:8790. (Butuh server lokal karena data JSON dimuat via `fetch`.)
+lalu buka http://localhost:8790. (Butuh server karena data JSON dimuat via `fetch`.)
 
 Kontrol: seret = geser, gulir = zoom, Spasi = jeda, 1/2/3 = kecepatan, B = bangun, I = inspeksi,
 T = trayek, R = rehabilitasi, X = bongkar, Enter = selesaikan trayek, F = seluruh Indonesia, Esc/klik kanan = selesai menyambung.

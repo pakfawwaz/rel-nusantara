@@ -1,0 +1,10 @@
+{
+  "name": "rel-nusantara",
+  "version": "1.0.0",
+  "description": "Railway builder on Indonesia's kecamatan map, 1945-2045",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": "20.x" },
+  "license": "UNLICENSED",
+  "private": true
+}
