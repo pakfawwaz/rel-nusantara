@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rel Nusantara</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="loading" class="overlay">
+  <div class="card center">
+    <div class="logo">REL<span>NUSANTARA</span></div>
+    <div class="years">1945 — 2045</div>
+    <div class="loadtrack"><div id="loadbar"></div></div>
+    <div id="loadmsg" class="mt">Memuat peta 7.283 kecamatan…</div>
+  </div>
+</div>
+
+<div id="menu" class="overlay" hidden>
+  <div class="card intro">
+    <div class="logo">REL<span>NUSANTARA</span></div>
+    <div class="years">1945 — 2045</div>
+    <p>17 Agustus 1945. Republik baru lahir, dan kamu mewarisi rel peninggalan Staatsspoorwegen dan NIS — rusak dan berantakan.
+      Seratus tahun ke depan, tugasmu menghubungkan kecamatan-kecamatan Nusantara dengan rel. Penduduk dan ekonomi akan bergerak mengikuti jaringanmu.</p>
+    <ul>
+      <li>🗺️ 7.283 kecamatan, masing-masing dengan penduduk, PDRB dan medan.</li>
+      <li>🚆 19 jenis rel: lori, rel konvensional, KRL, rel ganda, kereta cepat, maglev, hyperloop, trem, monorel, MRT, LRT, rel bergigi, funikular, kereta gantung, feri kereta, jembatan laut…</li>
+      <li>⚓ ✈ ⛏ 🏭 Sambungkan pelabuhan, bandara, tambang, dan pabrik untuk bonus dan angkutan barang.</li>
+      <li>📈 Kecamatan terlayani rel tumbuh lebih cepat; yang terisolasi ditinggalkan penduduknya.</li>
+    </ul>
+    <div class="row">
+      <button id="btn-new" class="btn primary">Mulai — 17 Agustus 1945</button>
+      <button id="btn-continue" class="btn" hidden>Lanjutkan permainan</button>
+    </div>
+    <p class="mt">Data kecamatan & 1950 dari proyek Nusantara 1950 (perkiraan). Uang dalam Rupiah harga konstan 2026.</p>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header id="top">
+    <div class="brand">REL<span>NUSANTARA</span></div>
+    <div id="date" class="date">17 Agu 1945</div>
+    <div id="speed" class="seg">
+      <button data-speed="0" title="Jeda (spasi)">❚❚</button>
+      <button data-speed="1" title="Normal (1)">▶</button>
+      <button data-speed="2" title="Cepat (2)">▶▶</button>
+      <button data-speed="3" title="Sangat cepat (3)">▶▶▶</button>
+    </div>
+    <div class="chips">
+      <div class="chip"><span class="k">Kas</span><span id="cash" class="v"></span></div>
+      <div class="chip"><span class="k">Laba</span><span id="profit" class="v"></span></div>
+      <div class="chip"><span class="k">Jaringan</span><span id="km" class="v"></span></div>
+      <div class="chip"><span class="k">Penumpang</span><span id="pax" class="v"></span></div>
+      <div class="chip"><span class="k">Penduduk</span><span id="pop" class="v"></span></div>
+      <div class="chip"><span class="k">PDB</span><span id="gdp" class="v"></span></div>
+      <div class="chip" title="PDB riil dibanding lintasan sejarah tanpa efek jaringan rel"><span class="k">Efek rel</span><span id="eff" class="v"></span></div>
+    </div>
+    <div class="searchbox"><input id="search" placeholder="Cari kecamatan / stasiun…" autocomplete="off"><div id="searchres" hidden></div></div>
+  </header>
+
+  <aside id="tools">
+    <div id="toolbtns" class="tools">
+      <button data-tool="inspect" class="on" title="Inspeksi (I)">🔍<span>Inspeksi</span></button>
+      <button data-tool="build" title="Bangun rel (B)">🛤️<span>Bangun</span></button>
+      <button data-tool="rehab" title="Rehabilitasi (R)">🔧<span>Rehab</span></button>
+      <button data-tool="demolish" title="Bongkar (X)">🧨<span>Bongkar</span></button>
+    </div>
+    <div id="palwrap" class="dim">
+      <div id="palette"></div>
+      <div id="typedesc"></div>
+    </div>
+  </aside>
+
+  <main id="mapwrap">
+    <canvas id="map"></canvas>
+    <div id="tip"></div>
+    <div id="hint">Klik untuk info. Seret untuk geser, gulir untuk zoom.</div>
+    <div id="modes"></div>
+    <div id="legend"></div>
+    <div id="zoom"><button id="zoomin">+</button><button id="zoomout">−</button><button id="zoomfit" title="Seluruh Indonesia (F)">⤢</button></div>
+  </main>
+
+  <aside id="side">
+    <nav id="side-tabs">
+      <button data-tab="info" class="on">Info</button>
+      <button data-tab="net">Jaringan</button>
+      <button data-tab="fin">Keuangan</button>
+      <button data-tab="stat">Statistik</button>
+    </nav>
+    <div id="side-body"></div>
+  </aside>
+
+  <footer id="news"></footer>
+</div>
+
+<div id="confirm" class="overlay" hidden>
+  <div class="card center"><h3>Mulai permainan baru?</h3><p>Simpanan saat ini akan dihapus.</p>
+  <div class="row"><button id="confirm-yes" class="btn primary">Ya, mulai dari 1945</button><button id="confirm-no" class="btn">Batal</button></div></div>
+</div>
+<div id="end" class="overlay" hidden>
+  <div class="card intro"><div class="logo">INDONESIA<span>EMAS 2045</span></div><div id="endbody"></div>
+  <div class="row"><button id="end-continue" class="btn primary">Lanjut bermain</button></div></div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
