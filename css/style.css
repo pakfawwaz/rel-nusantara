@@ -69,7 +69,7 @@ kbd { background: var(--paper-2); border: 1px solid var(--line); border-radius: 
 #searchres span { color: var(--muted); font-size: 11px; margin-left: 4px; }
 
 #tools { grid-area: tools; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-.tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
+.tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
 .tools button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 0; font-size: 17px; display: flex; flex-direction: column; align-items: center; }
 .tools button span { font-size: 10px; color: var(--ink-2); }
 .tools button.on { background: var(--ink); border-color: var(--ink); }
@@ -140,3 +140,33 @@ ul.segs li, ul.pois li { padding: 3px 0; border-bottom: 1px solid var(--paper-2)
   #typedesc { display: none; }
   #hint { display: none; }
 }
+
+/* ---------- trayek & companies ---------- */
+.pad { padding: 0 4px; }
+.kinds { display: flex; gap: 4px; }
+.kinds button { flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 4px; font-size: 12px; }
+.kinds button.on { border-color: var(--accent); font-weight: 700; }
+.kinds i, ul.trl i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+ol.draft { margin: 2px 0 4px 22px; padding: 0; font-size: 12px; }
+ul.trl { list-style: none; padding: 0; margin: 0; }
+ul.trl li { display: flex; gap: 6px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--paper-2); font-size: 12px; }
+ul.trl li .mt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ul.trl li .r { font-variant-numeric: tabular-nums; }
+input.nm { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; font: inherit; font-weight: 600; margin: 4px 0; background: #fff; }
+.stops { font-size: 11.5px; color: var(--ink-2); line-height: 1.4; margin-bottom: 4px; }
+.step { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 12.5px; }
+.step > span:first-child { flex: 1; }
+.step button { width: 26px; height: 24px; border: 1px solid var(--line); background: #fff; border-radius: 5px; }
+.step b { min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+.step .mt { min-width: 92px; }
+#side-body select { font: inherit; font-size: 12px; max-width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 3px; background: #fff; }
+.roles td:last-child select { width: 175px; }
+.co { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 8px 0; background: #fff; }
+.co.induk { border-color: var(--ink-2); }
+.tree { border-left: 2px solid var(--line); padding-left: 10px; margin-left: 10px; }
+.co .ch { display: flex; gap: 8px; align-items: center; }
+.co .ic { font-size: 22px; }
+.co .row { margin: 6px 0 0; }
+.co .btn { padding: 4px 8px; font-size: 12px; }
+.form label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; margin: 5px 0; }
+.form label select { max-width: 200px; }

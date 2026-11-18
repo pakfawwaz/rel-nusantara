@@ -1,18 +1,20 @@
 import { loadWorld } from './world.js';
-import { TYPE } from './railtypes.js';
+import { TYPE, costIndex } from './railtypes.js';
 import { reindex, seedNetwork, planSegment, commitSegment, removeSeg, removeStation, rehabCost, segName, prepSeg } from './network.js';
-import { calibrate, monthTick, runTraffic, computeAccess, fmtM, poiActive } from './sim.js';
+import { calibrate, monthTick, runTraffic, computeAccess, fmtM, poiActive, yearFrac, closeBooks } from './sim.js';
+import { findLeg, newTrayek, configure, suggest, geometry, fleetNeed, fleetCost, runTrayeks, trayekAccess, KIND } from './trayek.js';
+import { newGroup, createCompany, compById, dividend, inject, book, induk, BIZ } from './company.js';
 import { MapView } from './render.js';
 import { UI } from './ui.js';
 
-const SAVE_KEY = 'rel-nusantara-v1';
+const SAVE_KEY = 'rel-nusantara-v2';
 const SPEEDS = [0, 0.35, 1, 3]; // months per second
 const $ = (s) => document.querySelector(s);
 
 class Game {
   constructor() {
     this.speed = 0; this.acc = 0;
-    this.tool = 'inspect'; this.selType = 'konv';
+    this.tool = 'inspect'; this.selType = 'konv'; this.trayekKind = 'P'; this.draft = null;
   }
 
   async boot() {
@@ -23,7 +25,7 @@ class Game {
       msg.textContent = 'Gagal memuat data: ' + e.message + '. Jalankan lewat server lokal (serve.ps1).';
       return;
     }
-    this.W0 = { pop: Float64Array.from(this.W.pop), grdp: Float64Array.from(this.W.grdp), urban: Float32Array.from(this.W.urban) };
+    this.W0 = { pop: Float64Array.from(this.W.pop), grdp: Float64Array.from(this.W.grdp), urban: Float32Array.from(this.W.urban), goods: Float32Array.from(this.W.goods) };
     $('#loading').hidden = true;
     $('#menu').hidden = false;
     let has = false;
@@ -34,27 +36,33 @@ class Game {
   }
 
   newState() {
-    return { y: 1945, m: 8, cash: 2500, loan: 0, stations: [], segs: [], nextId: 1, connected: [], hist: [], news: [], histGdp: 0, gp: 1, gf: 1 };
+    return { y: 1945, m: 8, cash: 2500, loan: 0, stations: [], segs: [], nextId: 1, connected: [], hist: [], news: [], histGdp: 0, gp: 1, gf: 1, companies: newGroup(), trayeks: [], trayekSeq: 0 };
   }
 
   start(saved) {
     const W = this.W;
-    W.pop.set(this.W0.pop); W.grdp.set(this.W0.grdp); W.urban.set(this.W0.urban); W.pop12 = null; W.access = null;
+    W.pop.set(this.W0.pop); W.grdp.set(this.W0.grdp); W.urban.set(this.W0.urban); W.goods.set(this.W0.goods); W.pop12 = null; W.access = null;
     if (saved) {
       this.S = saved.S;
       W.pop.set(saved.pop); W.grdp.set(saved.grdp); W.urban.set(saved.urban);
       if (saved.pop12) W.pop12 = Float64Array.from(saved.pop12);
+      if (saved.goods) W.goods.set(saved.goods);
       reindex(this.S);
-      runTraffic(this.S, W); computeAccess(this.S, W);
+      runTraffic(this.S, W);
+      for (const t of this.S.trayeks) t.geo = geometry(this.S, t, yearFrac(this.S));
+      computeAccess(this.S, W);
     } else {
       this.S = this.newState();
       reindex(this.S);
       seedNetwork(this.S, W);
       calibrate(this.S, W);
+      this.seedTrayeks();
       computeAccess(this.S, W);
-      for (const s of this.S.stations) if (s.acc > 0) for (const p of W.poisByKec.get(s.k) || []) if (poiActive(p, 1945) && !this.S.connected.includes(p.id)) this.S.connected.push(p.id);
+      const stopSet = new Set(this.S.trayeks.flatMap((t) => t.stops));
+      let p0 = 0; for (let k = 0; k < W.n; k++) p0 += W.pop[k];
+      for (const s of this.S.stations) if (stopSet.has(s.id)) for (const p of W.poisByKec.get(s.k) || []) if (poiActive(p, 1945) && !this.S.connected.includes(p.id)) this.S.connected.push(p.id);
       let g = 0; for (let k = 0; k < W.n; k++) g += W.grdp[k];
-      this.S.histGdp = g;
+      this.S.histGdp = g; this.S.inc0 = g / p0; this.S.gdp0 = g;
     }
     $('#menu').hidden = true;
     $('#app').hidden = false;
@@ -90,7 +98,8 @@ class Game {
         if (['pop', 'econ', 'growth', 'access'].includes(this.map.mode)) this.map.binsDirty = true;
         if (this.S.y !== prevY) { this.ui.renderPalette(); this.save(true); }
         if (this.S.y === 2045 && this.S.m === 9 && !this.S.ended) this.showEnd();
-        if (this.ui.tab !== 'info' || this.ui.sel) this.ui.renderSide();
+        if (this.ui.tab !== 'info' || this.ui.sel) this.ui.renderSide(false);
+        if (this.tool === 'trayek') this.ui.renderPalette();
       }
       this.ui.renderTop();
     }
@@ -122,12 +131,15 @@ class Game {
       drag = null;
     });
     cv.addEventListener('pointerleave', () => { map.hoverK = -1; this.ui.tip(0, 0, null); });
-    cv.addEventListener('contextmenu', (e) => { e.preventDefault(); this.cancelChain(); });
+    cv.addEventListener('contextmenu', (e) => { e.preventDefault(); if (this.tool === 'trayek') this.finishDraft(); else this.cancelChain(); });
     window.addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
       if (e.key === ' ') { e.preventDefault(); this.setSpeed(this.speed ? 0 : 1); }
       else if (e.key >= '1' && e.key <= '3') this.setSpeed(+e.key);
-      else if (e.key === 'Escape') this.cancelChain();
+      else if (e.key === 'Escape') { this.cancelChain(); this.cancelDraft(); }
+      else if (e.key === 'Enter' && this.tool === 'trayek') this.finishDraft();
+      else if (e.key === 'Backspace' && this.draft && this.draft.stops.length) { this.draft.stops.pop(); this.draft.legs.pop(); this.refreshDraft(); }
+      else if (e.key === 't' || e.key === 'T') this.setTool('trayek');
       else if (e.key === 'b' || e.key === 'B') this.setTool('build');
       else if (e.key === 'i' || e.key === 'I') this.setTool('inspect');
       else if (e.key === 'x' || e.key === 'X') this.setTool('demolish');
@@ -171,10 +183,12 @@ class Game {
   setTool(t) {
     this.tool = t;
     if (t !== 'build') this.cancelChain();
+    if (t !== 'trayek') this.cancelDraft(true);
     document.querySelectorAll('#toolbtns button').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
-    $('#palwrap').classList.toggle('dim', t !== 'build');
+    $('#palwrap').classList.toggle('dim', t !== 'build' && t !== 'trayek');
+    this.ui.renderPalette();
     $('#map').dataset.tool = t;
-    const hints = { inspect: 'Klik untuk info. Seret untuk geser, gulir untuk zoom.', build: 'Klik kecamatan asal, lalu tujuan. Klik kanan / Esc untuk selesai.', demolish: 'Klik jalur untuk membongkar.', rehab: 'Klik jalur rusak (garis merah putus-putus) untuk memperbaiki.' };
+    const hints = { inspect: 'Klik untuk info. Seret untuk geser, gulir untuk zoom.', build: 'Klik kecamatan asal, lalu tujuan. Klik kanan / Esc untuk selesai.', demolish: 'Klik jalur untuk membongkar.', rehab: 'Klik jalur rusak (garis merah putus-putus) untuk memperbaiki.', trayek: 'Klik stasiun pemberhentian berurutan. Enter / klik kanan untuk membuat trayek.' };
     $('#hint').textContent = hints[t];
   }
 
@@ -192,6 +206,7 @@ class Game {
         if (!map.preview.ok) map.preview.pts = [W.x[map.anchor], W.y[map.anchor], W.x[k], W.y[k]];
       }
     }
+    if (this.tool === 'trayek') { this.hoverTrayek(px, py, st); return; }
     if (this.tool === 'build' && map.anchor != null && map.preview && k >= 0) this.ui.tip(px, py, this.ui.planTip(map.preview));
     else if (this.tool === 'build' && k >= 0) this.ui.tip(px, py, `${st ? '🚉 <b>' + st.name + '</b><br>' : ''}${W.name[k]} · ${Math.round(W.pop[k]).toLocaleString('id-ID')} jiwa<br><span class="mt">klik untuk mulai</span>`);
     else if (this.tool === 'demolish' || this.tool === 'rehab') {
@@ -243,6 +258,7 @@ class Game {
       this.ui.renderTop();
       return;
     }
+    if (this.tool === 'trayek') { if (st) this.addStop(st); return; }
     if (this.tool === 'demolish') { const g = this.segAt(px, py); if (g) this.demolish(g); else if (st) this.deleteStation(st); return; }
     if (this.tool === 'rehab') { const g = this.segAt(px, py); if (g) this.rehab(g); return; }
     // inspect
@@ -256,9 +272,11 @@ class Game {
   demolish(g) {
     if (!g) return;
     const S = this.S;
-    if (g.build > 0) { const refund = g.cost * 0.5 * g.build / Math.max(1, g.total); S.cash += refund; }
+    if (g.build > 0) { const refund = g.cost * 0.5 * g.build / Math.max(1, g.total); book(S, induk(S), 'Pembangunan rel', refund); }
+    const hit = S.trayeks.filter((t) => t.legs.some((l) => l.includes(g.id)));
     removeSeg(S, g);
-    this.ui.news(`🧨 Dibongkar: ${segName(S, g)}`);
+    this.ui.news(`🧨 Dibongkar: ${segName(S, g)}${hit.length ? ` — ${hit.length} trayek terputus: ${hit.map((t) => t.code).join(', ')}` : ''}`, hit.length ? 'bad' : '');
+    for (const t of hit) t.broken = true;
     runTraffic(S, this.W);
     if (this.ui.sel && this.ui.sel.kind === 'seg' && this.ui.sel.id === g.id) this.ui.sel = null;
     this.ui.renderSide(); this.ui.renderTop();
@@ -275,9 +293,153 @@ class Game {
     const c = rehabCost(this.S, g);
     if (g.cond >= 0.98) { this.ui.news('Jalur ini sudah prima.'); return; }
     if (this.S.cash < c) { this.ui.news('✖ Kas tidak cukup untuk rehabilitasi.', 'bad'); return; }
-    this.S.cash -= c; g.cond = 1;
+    book(this.S, induk(this.S), 'Rehabilitasi', -c); g.cond = 1;
     this.ui.news(`🔧 Rehabilitasi ${segName(this.S, g)} — Rp ${fmtM(c)}`, 'good');
     this.ui.renderSide(); this.ui.renderTop();
+  }
+
+  // ---------- trayek ----------
+  mass() { return runTraffic(this.S, this.W).mass; }
+
+  seedTrayeks() {
+    const S = this.S, W = this.W, y = yearFrac(S);
+    const mass = this.mass();
+    for (const line of W.seedRail) {
+      const stops = [];
+      for (const st of line.stations) {
+        const s = S.stByKec.get(W.idx.get(st.kec));
+        if (s && !stops.includes(s.id)) stops.push(s.id);
+      }
+      if (stops.length < 2) continue;
+      const legs = [];
+      for (let i = 1; i < stops.length; i++) { const l = findLeg(S, stops[i - 1], stops[i], 'C', y); if (!l) { legs.length = 0; break; } legs.push(l); }
+      if (!legs.length) continue;
+      const tr = newTrayek(S, stops, legs, 'C');
+      const sg = suggest(S, W, mass, tr, y);
+      if (sg) { tr.freq = sg.freq; tr.gp = sg.gp; tr.gb = sg.gb; }
+      tr.geo = geometry(S, tr, y);
+      tr.fleet = fleetNeed(tr.geo, tr.freq, tr.gp, tr.gb);
+      S.trayeks.push(tr);
+    }
+  }
+
+  hoverTrayek(px, py, st) {
+    const d = this.draft, map = this.map, S = this.S;
+    if (!st) { this.ui.tip(px, py, null); map.draftPreview = null; this._hoverSt = null; return; }
+    if (!d || !d.stops.length) { this.ui.tip(px, py, `🚉 <b>${st.name}</b><br><span class="mt">klik untuk stop pertama</span>`); return; }
+    const last = d.stops[d.stops.length - 1];
+    if (st.id !== this._hoverSt) {
+      this._hoverSt = st.id;
+      this._hoverLeg = st.id === last ? null : findLeg(S, last, st.id, this.trayekKind, yearFrac(S));
+      map.draftPreview = this._hoverLeg;
+    }
+    const leg = this._hoverLeg;
+    if (st.id === last) { this.ui.tip(px, py, `🚉 <b>${st.name}</b> (stop terakhir)`); return; }
+    if (!leg) { this.ui.tip(px, py, `<span class="neg">✖ Tidak ada rel jadi yang bisa dilalui trayek ${KIND[this.trayekKind].toLowerCase()} ke ${st.name}.</span>`); return; }
+    let km = 0; for (const id of leg) km += S.segById.get(id).km;
+    this.ui.tip(px, py, `→ <b>${st.name}</b><br>${km.toFixed(0)} km · lewat ${leg.length - 1} stasiun tanpa berhenti<br><span class="mt">klik untuk tambah stop</span>`);
+  }
+
+  addStop(st) {
+    const S = this.S;
+    if (!this.draft) this.draft = { stops: [], legs: [] };
+    const d = this.draft;
+    if (!d.stops.length) {
+      if (!S.segs.some((g) => g.build <= 0 && (g.a === st.id || g.b === st.id))) { this.ui.news('✖ Stasiun ini belum punya rel yang beroperasi.', 'bad'); return; }
+      d.stops.push(st.id);
+    } else {
+      if (d.stops.includes(st.id)) { this.ui.news('✖ Stasiun ini sudah jadi pemberhentian.', 'bad'); return; }
+      const leg = findLeg(S, d.stops[d.stops.length - 1], st.id, this.trayekKind, yearFrac(S));
+      if (!leg) { this.ui.news(`✖ Tidak ada rel yang bisa dilalui ke ${st.name}.`, 'bad'); return; }
+      d.stops.push(st.id); d.legs.push(leg);
+    }
+    this.refreshDraft();
+  }
+
+  refreshDraft() { this.map.draft = this.draft; this.map.draftPreview = null; this._hoverSt = null; this.ui.renderPalette(); }
+  cancelDraft(silent) { this.draft = null; if (this.map) { this.map.draft = null; this.map.draftPreview = null; } if (!silent && this.ui) this.ui.renderPalette(); }
+
+  finishDraft() {
+    const d = this.draft, S = this.S, y = yearFrac(S);
+    if (!d || d.stops.length < 2) return;
+    const tr = newTrayek(S, d.stops, d.legs, this.trayekKind);
+    S.trayeks.push(tr);
+    const sg = suggest(S, this.W, this.mass(), tr, y);
+    let r = sg ? configure(S, tr, sg.freq, sg.gp, sg.gb, y) : { ok: false };
+    if (!r.ok) r = configure(S, tr, 1, tr.kind === 'K' ? 0 : 2, tr.kind === 'P' ? 0 : 5, y);
+    if (!r.ok) { tr.freq = 0; tr.active = false; this.ui.news(`⚠️ ${tr.code} dibuat tapi belum jalan: kas tidak cukup untuk membeli sarana.`, 'bad'); }
+    else this.ui.news(`🚆 Trayek baru ${tr.code} ${tr.name}: ${tr.freq}×/hari, beli sarana Rp ${fmtM(r.cost)}.`, 'good');
+    this.cancelDraft();
+    this.ui.selectTr(tr.id);
+    this.ui.renderTop();
+  }
+
+  stepTrayek(t, key, dir) {
+    const y = yearFrac(this.S);
+    const step = key === 'gb' && t.kind === 'K' ? 5 : key === 'freq' && t.freq >= 20 ? 4 : 1;
+    const v = { freq: t.freq, gp: t.gp, gb: t.gb };
+    v[key] = Math.max(0, v[key] + dir * step);
+    const r = configure(this.S, t, v.freq, v.gp, v.gb, y);
+    if (!r.ok) this.ui.news('✖ ' + r.err, 'bad');
+    this.ui.renderSide(); this.ui.renderTop();
+  }
+
+  suggestTrayek(t) {
+    const y = yearFrac(this.S);
+    const sg = suggest(this.S, this.W, this.mass(), t, y);
+    if (!sg) return;
+    const r = configure(this.S, t, sg.freq, sg.gp, sg.gb, y);
+    this.ui.news(r.ok ? `✨ ${t.code} disesuaikan: ${sg.freq}×/hari, ${sg.gp + sg.gb} gerbong (${r.cost >= 0 ? 'beli' : 'jual'} sarana Rp ${fmtM(Math.abs(r.cost))}).` : '✖ ' + r.err, r.ok ? '' : 'bad');
+    this.ui.renderSide(); this.ui.renderTop();
+  }
+
+  deleteTrayek(t) {
+    const S = this.S, geo = t.geo || { sf: 1 };
+    const refund = -fleetCost(S, geo, { R: 0, cp: 0, cb: 0 }, t.fleet);
+    book(S, compById(S, t.op), 'Jual sarana', refund);
+    S.trayeks = S.trayeks.filter((x) => x !== t);
+    this.ui.news(`Trayek ${t.code} dihapus, sarana dijual Rp ${fmtM(refund)}.`);
+    this.ui.sel = null; this.map.trayekHi = null;
+    this.ui.renderSide(); this.ui.renderTop(); this.ui.renderPalette();
+  }
+
+  setOperator(t, id) {
+    const c = compById(this.S, id);
+    t.op = id;
+    this.ui.news(`${t.code} kini dioperasikan ${c.name}.`);
+    this.ui.renderSide();
+  }
+
+  foundCompany(f) {
+    const S = this.S, ci = costIndex(S.y);
+    const NAMES = { kereta: 'PT Operator Kereta', catering: 'PT Boga Rel', alihdaya: 'PT Daya Karya Rel', perawatan: 'PT Balai Yasa Rel', konstruksi: 'PT Karya Rel', parkir: 'PT Parkir Stasiun', properti: 'PT Properti Stasiun', logistik: 'PT Logistik Rel' };
+    const jv = f.biz === 'kereta' && f.bentuk === 'jv';
+    let name = jv ? `PT KA ${f.prov} (JV)` : NAMES[f.biz];
+    const same = S.companies.filter((c) => c.name.startsWith(name)).length;
+    if (same) name += ' ' + (same + 1);
+    const r = createCompany(S, { name, biz: f.biz, kind: jv ? 'jv' : 'anak', prov: jv ? f.prov : null, own: +f.own, capital: +f.modal * ci });
+    if (!r.ok) { this.ui.news('✖ ' + r.err, 'bad'); return; }
+    this.ui.news(`🏢 ${r.c.name} didirikan${jv ? ` bersama Pemprov ${f.prov}` : ''}. Modal Rp ${fmtM(r.c.cash)}.`, 'good');
+    this.ui.renderSide(); this.ui.renderTop();
+  }
+  injectCompany(id) { const c = compById(this.S, id); const a = inject(this.S, c, 100 * costIndex(this.S.y)); this.ui.news(`Setor modal Rp ${fmtM(a)} ke ${c.name}.`); this.ui.renderSide(); this.ui.renderTop(); }
+  dividendCompany(id) { const c = compById(this.S, id); const a = dividend(this.S, c, c.cash); this.ui.news(`Dividen dari ${c.name}: Rp ${fmtM(a)} masuk ke induk.`, 'good'); this.ui.renderSide(); this.ui.renderTop(); }
+  closeCompany(id) {
+    const S = this.S, c = compById(S, id);
+    const back = Math.max(0, c.cash) * c.own;
+    S.cash += back + Math.min(0, c.cash);
+    S.companies = S.companies.filter((x) => x !== c);
+    this.ui.news(`${c.name} dibubarkan. Sisa kas Rp ${fmtM(back)} kembali ke induk.`);
+    this.ui.renderSide(); this.ui.renderTop();
+  }
+
+  focusTrayek(t) {
+    if (!t.geo) return;
+    const W = this.W, S = this.S;
+    let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+    for (const n of t.geo.nodes) { const k = S.stById.get(n.st).k; a = Math.min(a, W.x[k]); c = Math.max(c, W.x[k]); b = Math.min(b, W.y[k]); d = Math.max(d, W.y[k]); }
+    const s = Math.min(this.map.w / Math.max(30, (c - a) * 1.3), this.map.h / Math.max(30, (d - b) * 1.3));
+    this.map.focus((a + c) / 2, (b + d) / 2, Math.min(s, 20));
   }
 
   focusKec(k) { this.map.focus(this.W.x[k], this.W.y[k], Math.max(this.map.view.s, 2.5)); this.map.highlight = { k }; }
@@ -290,10 +452,11 @@ class Game {
   save(silent) {
     const S = this.S, W = this.W;
     const clean = { ...S, stById: undefined, stByKec: undefined, segById: undefined,
-      segs: S.segs.map(({ cum, len, bb, ...g }) => g) };
+      segs: S.segs.map(({ cum, len, bb, ...g }) => g),
+      trayeks: S.trayeks.map(({ geo, pairs, ...t }) => t) };
     const r = (a, d) => Array.from(a, (v) => Math.round(v * d) / d);
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ S: clean, pop: r(W.pop, 1), grdp: r(W.grdp, 1000), urban: r(W.urban, 1000), pop12: W.pop12 ? r(W.pop12, 1) : null }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ S: clean, pop: r(W.pop, 1), grdp: r(W.grdp, 1000), urban: r(W.urban, 1000), goods: r(W.goods, 1000), pop12: W.pop12 ? r(W.pop12, 1) : null }));
     } catch (e) { if (!silent) this.ui.news('✖ Gagal menyimpan: ' + e.message, 'bad'); }
   }
 

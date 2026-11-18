@@ -3,10 +3,10 @@
 import { TYPE, costIndex, techSpeed, roadSpeed, airAvailable, interp } from './railtypes.js';
 import { heapPush, heapPop, segName } from './network.js';
 import { EVENTS } from './places.js';
+import { runTrayeks, trayekAccess } from './trayek.js';
+import { induk, book, overhead, scaleEff } from './company.js';
 
-const FARE_P = 1.6e-7; // Rp miliar per passenger-km (≈ Rp160)
-const FARE_F = 5e-7;   // Rp miliar per tonne-km (≈ Rp500)
-const START_PAX = 260000, START_FR = 26000; // per day, used to calibrate the gravity constants
+const START_PAX = 600000, START_FR = 60000; // per day, used to calibrate the gravity constants
 
 const POP_RATE = [[1945, 0.010], [1950, 0.019], [1960, 0.023], [1975, 0.024], [1990, 0.016], [2005, 0.013], [2020, 0.009], [2045, 0.005]];
 const GDP_RATE = [[1945, -0.02], [1949, 0.0], [1950, 0.045], [1957, 0.04], [1958, 0.015], [1966, 0.01], [1967, 0.065], [1996, 0.07], [1997, 0.04],
@@ -25,8 +25,8 @@ export function runTraffic(S, W) {
   const live = S.segs.filter((g) => g.build <= 0);
   for (const g of live) for (const sid of [g.a, g.b]) if (!nodeOf.has(sid)) { nodeOf.set(sid, nodes.length); nodes.push(S.stById.get(sid)); }
   const N = nodes.length;
-  for (const s of S.stations) { s.rid = 0; s.fr = 0; s.acc = 0; }
-  if (!N) { for (const g of S.segs) { g.loadP = g.loadF = g.sP = g.sF = g.rev = 0; } return { pax: 0, fr: 0, revDay: 0, pkm: 0, tkm: 0 }; }
+  const mass = new Map();
+  if (!N) return { pax: 0, fr: 0, mass };
 
   // catchment: own kecamatan fully, unserved neighbours shared between adjacent stations
   const share = new Map();
@@ -40,7 +40,7 @@ export function runTraffic(S, W) {
   const P = new Float64Array(N), G = new Float64Array(N), GOODS = new Float64Array(N);
   for (let i = 0; i < N; i++) { const k = nodes[i].k; P[i] = W.pop[k]; G[i] = W.grdp[k]; GOODS[i] = W.grdp[k] * W.goods[k]; }
   for (const [j, list] of share) {
-    const w = 0.4 / list.length;
+    const w = 0.6 / list.length;
     for (const i of list) { P[i] += W.pop[j] * w; G[i] += W.grdp[j] * w; GOODS[i] += W.grdp[j] * W.goods[j] * w; }
   }
   let natPop = 0, natGdp = 0;
@@ -54,6 +54,7 @@ export function runTraffic(S, W) {
     const inc = G[i] / Math.max(P[i], 1);
     let pm = P[i] * Math.pow(inc / incNat, 0.5);
     let f = GOODS[i], c = (G[i] - GOODS[i]) * 0.6;
+    let rx = 0, px = 0;
     if (W.capital[k]) pm *= 1.25;
     const tset = typesAt.get(s.id);
     if ((tset.has('funikular') || tset.has('gantung')) && W.terrain[k] >= 2) pm *= 1.4;
@@ -64,13 +65,14 @@ export function runTraffic(S, W) {
       for (const p of pois) {
         if (!poiActive(p, y)) continue;
         const L = p.level * w;
-        if (p.kind === 'port') { f += natGdp * 0.0012 * L; c += natGdp * 0.0025 * L; pm *= 1 + 0.12 * L; }
+        if (p.kind === 'port') { f += natGdp * 0.0012 * L; c += natGdp * 0.0025 * L; pm *= 1 + 0.12 * L; px += L; }
         else if (p.kind === 'airport') { pm *= 1 + (y >= 1970 ? 0.3 : 0.15) * L * (tset.has('agt') || tset.has('mrt') || tset.has('lrt') ? 2 : 1); }
-        else if (p.kind === 'resource') { f += natGdp * (['oil', 'gas', 'coal', 'tin', 'bauxite', 'nickel', 'copper', 'gold'].includes(p.sub) ? 0.0012 : 0.0006) * L; }
-        else if (p.kind === 'industry') { f += natGdp * 0.0008 * L; c += natGdp * 0.0006 * L; }
+        else if (p.kind === 'resource') { f += natGdp * (['oil', 'gas', 'coal', 'tin', 'bauxite', 'nickel', 'copper', 'gold'].includes(p.sub) ? 0.0012 : 0.0006) * L; rx += L * (['oil', 'gas', 'coal', 'tin', 'bauxite', 'nickel', 'copper', 'gold'].includes(p.sub) ? 1 : 0.4); }
+        else if (p.kind === 'industry') { f += natGdp * 0.0008 * L; c += natGdp * 0.0006 * L; rx += 0.3 * L; px += 0.2 * L; }
       }
     }
     PM[i] = pm; F[i] = f; C[i] = c;
+    mass.set(s.id, { P: P[i], PM: pm, F: f, C: c, R: rx * natGdp / (S.gdp0 || natGdp), X: px });
   }
 
   // edges
@@ -149,19 +151,10 @@ export function runTraffic(S, W) {
     }
   }
 
-  let revDay = 0, pkm = 0, tkm = 0;
-  live.forEach((g, e) => {
-    const t = TYPE[g.type];
-    let sp = Math.min(loadP[e], t.cap * Math.min(1, t.pax)), sf = Math.min(loadF[e], t.cap * Math.min(1, t.freight));
-    if (sp + sf > t.cap) { const r = t.cap / (sp + sf); sp *= r; sf *= r; }
-    g.loadP = loadP[e]; g.loadF = loadF[e]; g.sP = sp; g.sF = sf;
-    const km = Math.max(g.km, 8);
-    g.rev = sp * km * FARE_P * t.fare + sf * km * FARE_F * Math.max(1, t.freight * 0.8);
-    revDay += g.rev; pkm += sp * g.km; tkm += sf * g.km;
-  });
-  for (const g of S.segs) if (g.build > 0) { g.loadP = g.loadF = g.sP = g.sF = g.rev = 0; }
-  for (let i = 0; i < N; i++) { nodes[i].rid = rid[i]; nodes[i].fr = frs[i]; nodes[i].acc = acc[i]; }
-  return { pax: totPax, fr: totFr, revDay, pkm, tkm };
+  live.forEach((g, e) => { g.potP = loadP[e]; g.potF = loadF[e]; });
+  for (let i = 0; i < N; i++) { nodes[i].pot = rid[i]; nodes[i].potF = frs[i]; }
+  mass.incFactor = Math.sqrt(incNat / (S.inc0 || incNat));
+  return { pax: totPax, fr: totFr, mass };
 }
 
 export function calibrate(S, W) {
@@ -193,7 +186,7 @@ export function monthTick(S, W, ui) {
       if (g.build <= 0) {
         g.build = 0;
         news(`🚆 Dibuka: ${TYPE[g.type].name} ${segName(S, g)} (${g.km.toFixed(0)} km)`, 'good');
-        if (g.replaces) { const old = S.segById.get(g.replaces); if (old) { S.segs = S.segs.filter((x) => x !== old); S.segById.delete(old.id); } delete g.replaces; }
+        if (g.replaces) { const old = S.segById.get(g.replaces); if (old) { S.segs = S.segs.filter((x) => x !== old); S.segById.delete(old.id); remapLegs(S, old.id, g.id); } delete g.replaces; }
       }
     }
   }
@@ -201,7 +194,7 @@ export function monthTick(S, W, ui) {
   // historical events
   for (const ev of EVENTS) if (ev.y === S.y && ev.m === S.m) {
     news('📰 ' + ev.text, 'event');
-    if (ev.fx?.cash) S.cash += ev.fx.cash * ci;
+    if (ev.fx?.cash) book(S, induk(S), "Bantuan pemerintah", ev.fx.cash * ci);
     if (ev.fx?.damage) {
       const hit = S.segs.filter((g) => g.build <= 0 && Math.random() < 0.5);
       for (const g of hit) g.cond = Math.max(0.15, g.cond - ev.fx.damage * Math.random() * 2);
@@ -209,18 +202,20 @@ export function monthTick(S, W, ui) {
   }
 
   const tr = runTraffic(S, W);
+  const ty = runTrayeks(S, W, tr.mass, y);
+  trayekAccess(S, W, y);
   computeAccess(S, W);
 
   // connection bonuses for ports, airports, mines and factories
   for (const s of S.stations) {
-    if (!(s.acc > 0)) continue;
+    if (!(s.rid > 0 || s.fr > 0)) continue;
     const pois = W.poisByKec.get(s.k);
     if (!pois) continue;
     for (const p of pois) {
       if (S.connected.includes(p.id) || !poiActive(p, y)) continue;
       S.connected.push(p.id);
       const bonus = { port: 120, airport: 90, resource: 50, industry: 60 }[p.kind] * p.level * ci;
-      S.cash += bonus;
+      book(S, induk(S), "Bonus koneksi", bonus);
       news(`🎉 ${p.name} tersambung ke jaringan! Bonus Rp ${fmtM(bonus)}`, 'good');
     }
   }
@@ -240,6 +235,7 @@ export function monthTick(S, W, ui) {
     wsum += attr[k] * W.pop[k];
   }
   const A = wsum / natPop;
+  const indEra = Math.max(0, Math.min(1, (y - 1967) / 25));
   if (!W.pop12) { W.pop12 = Float64Array.from(W.pop); W.popPrev = []; }
   let newPop = 0;
   const oldPop = Float64Array.from(W.pop);
@@ -255,23 +251,36 @@ export function monthTick(S, W, ui) {
     W.grdp[k] *= (1 + rg + 0.03 * (acc[k] - 0.08) / 12) * Math.pow(migRatio, 0.7);
     const dens = W.pop[k] / Math.max(W.area[k], 0.5);
     W.urban[k] += (Math.min(1, dens / 6000 + acc[k] * 0.2) - W.urban[k]) * 0.01;
+    // industrialisation from the late 1960s favours well-connected, urbanising kecamatan
+    const tgt = Math.min(0.75, W.goods0[k] + 0.4 * acc[k] * indEra * (W.urban[k] > 0.3 ? 1 : 0.5));
+    W.goods[k] += (tgt - W.goods[k]) * 0.006;
   }
   S.histGdp *= 1 + rg;
 
-  // finances
+  // finances: the holding owns the track; trayek money was booked in runTrayeks
+  const ind = induk(S);
   let maintYr = 0;
   for (const g of S.segs) if (g.build <= 0) maintYr += g.km * TYPE[g.type].maint * ci;
-  maintYr += S.stations.length * 0.4 * ci;
-  const rev = tr.revDay * 30.4;
-  const ops = rev * 0.42;
-  const maint = maintYr / 12;
-  const interest = S.loan * loanRate(y) / 12 + Math.max(0, -S.cash) * loanRate(y) * 2 / 12;
-  const subsidy = natGdp * 0.0003 / 12;
-  const profit = rev + subsidy - ops - maint - interest;
-  S.cash += profit;
-  S.last = { rev, ops, maint, interest, subsidy, profit, pax: tr.pax, fr: tr.fr, pkm: tr.pkm, tkm: tr.tkm, natPop: natPop * (1 + rp), natGdp };
+  book(S, ind, 'Perawatan jalur', -maintYr / 12);
+  book(S, ind, 'Operasional stasiun', -S.stations.length * 0.4 * ci / 12);
+  book(S, ind, 'Subsidi PSO pusat', natGdp * 0.0003 / 12);
+  book(S, ind, 'Bunga', -(S.loan * loanRate(y) / 12 + Math.max(0, -S.cash) * loanRate(y) * 2 / 12));
+  // station businesses: parking and retail follow boardings
+  let board = 0;
+  for (const s of S.stations) board += s.rid * (0.5 + W.urban[s.k]);
+  const inc = tr.mass.incFactor || 1;
+  for (const [biz, rate, fee] of [['parkir', 2e-6, 0.25], ['properti', 3e-6, 0.2]]) {
+    const gross = board * rate * inc * 30.4;
+    const sub = S.companies.find((c) => c.biz === biz);
+    if (sub) { book(S, sub, biz === 'parkir' ? 'Pendapatan parkir' : 'Sewa & ritel', gross); book(S, sub, 'Biaya operasi', -gross * 0.55 * scaleEff(S.stations.length / 10)); }
+    else book(S, ind, biz === 'parkir' ? 'Konsesi parkir (vendor)' : 'Sewa ritel (vendor)', gross * fee);
+  }
+  for (const c of S.companies) book(S, c, 'Overhead', -overhead(S, c));
+  closeBooks(S);
+  const L = ind.last;
+  S.last = { rev: L.revenue, profit: L.profit, group: S.groupProfit, pax: ty.pax, fr: ty.fr, pkm: ty.pkm, tkm: ty.tkm, potPax: tr.pax, natPop: natPop * (1 + rp), natGdp };
   S.yearAcc = S.yearAcc || { rev: 0, profit: 0, pax: 0, fr: 0 };
-  S.yearAcc.rev += rev; S.yearAcc.profit += profit; S.yearAcc.pax += tr.pax * 30.4; S.yearAcc.fr += tr.fr * 30.4;
+  S.yearAcc.rev += L.revenue; S.yearAcc.profit += S.groupProfit; S.yearAcc.pax += ty.pax * 30.4; S.yearAcc.fr += ty.fr * 30.4;
 
   // slow wear: older track loses condition unless rehabilitated
   for (const g of S.segs) if (g.build <= 0) g.cond = Math.max(0.2, g.cond - 0.0008);
@@ -288,6 +297,24 @@ export function monthTick(S, W, ui) {
   }
   if (S.cash < -maxLoan(S) * 0.5 && !S.warnedDebt) { S.warnedDebt = true; news('⚠️ Kas sangat negatif! Bunga cerukan 2× lipat. Kurangi pembangunan atau ambil pinjaman.', 'bad'); }
   if (S.cash > 0) S.warnedDebt = false;
+}
+
+// Money moved to or from capital (fleet, equity, dividends, construction) is not profit.
+export const CAPITAL = new Set(['Beli sarana', 'Jual sarana', 'Setoran modal', 'Dividen diterima', 'Dividen dibayar', 'Pembangunan rel', 'Rehabilitasi', 'Modal awal']);
+export function closeBooks(S) {
+  let group = 0;
+  for (const c of S.companies) {
+    let revenue = 0, profit = 0;
+    for (const [k, v] of Object.entries(c.led)) { if (CAPITAL.has(k)) continue; profit += v; if (v > 0) revenue += v; }
+    c.last = { ...c.led, revenue, profit };
+    group += profit * c.own;
+    c.led = {};
+  }
+  S.groupProfit = group;
+}
+
+export function remapLegs(S, oldId, newId) {
+  for (const tr of S.trayeks) for (const leg of tr.legs) for (let i = 0; i < leg.length; i++) if (leg[i] === oldId) leg[i] = newId;
 }
 
 export function coverage(S, W) {

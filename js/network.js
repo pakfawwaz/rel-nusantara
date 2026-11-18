@@ -1,5 +1,6 @@
 // Stations, track segments, routing and construction costs.
 import { TYPE, costIndex } from './railtypes.js';
+import { book, induk } from './company.js';
 
 export function terrainFactor(W, k, t) { return t.terrain[W.terrain[k]] * (W.swamp[k] ? 1.35 : 1); }
 export function density(W, k) { return W.pop[k] / Math.max(W.area[k], 0.5); }
@@ -158,8 +159,10 @@ export function planSegment(S, W, ka, kb, typeKey) {
       cost = Math.max(cost * 0.3, cost - credit);
     }
   }
-  const months = Math.round(t.months[0] + km * t.months[1] * Math.sqrt(tf));
-  return { ok: true, type: typeKey, ka, kb, kpath, pts, km, tf, cost, months, upgradeOf, newA: !sa, newB: !sb };
+  let months = Math.round(t.months[0] + km * t.months[1] * Math.sqrt(tf));
+  const kons = S.companies && S.companies.some((c) => c.biz === 'konstruksi');
+  if (kons) { cost *= 0.92; months = Math.max(1, Math.round(months * 0.9)); }
+  return { ok: true, type: typeKey, ka, kb, kpath, pts, km, tf, cost, months, kons, upgradeOf, newA: !sa, newB: !sb };
 }
 
 export function ensureStation(S, W, k, name) {
@@ -173,7 +176,8 @@ export function ensureStation(S, W, k, name) {
 
 export function commitSegment(S, W, plan) {
   if (S.cash < plan.cost) return { ok: false, err: 'Kas tidak cukup. Ambil pinjaman di panel Keuangan.' };
-  S.cash -= plan.cost;
+  book(S, induk(S), 'Pembangunan rel', -plan.cost);
+  if (plan.kons) { const k = S.companies.find((c) => c.biz === 'konstruksi'); if (k) book(S, k, 'Margin proyek', plan.cost / 0.92 * 0.06); }
   S.spentBuild = (S.spentBuild || 0) + plan.cost;
   const a = ensureStation(S, W, plan.ka), b = ensureStation(S, W, plan.kb);
   const g = {

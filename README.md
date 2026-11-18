@@ -12,7 +12,9 @@ powershell -ExecutionPolicy Bypass -File serve.ps1
 lalu buka http://localhost:8790. (Butuh server lokal karena data JSON dimuat via `fetch`.)
 
 Kontrol: seret = geser, gulir = zoom, Spasi = jeda, 1/2/3 = kecepatan, B = bangun, I = inspeksi,
-R = rehabilitasi, X = bongkar, F = seluruh Indonesia, Esc/klik kanan = selesai menyambung.
+T = trayek, R = rehabilitasi, X = bongkar, Enter = selesaikan trayek, F = seluruh Indonesia, Esc/klik kanan = selesai menyambung.
+
+Cara main singkat: bangun rel (🛤️), lalu jalankan trayek (🚆) di atasnya — pendapatan hanya datang dari trayek. Atur frekuensi & gerbong tiap trayek, serahkan trayek ke anak usaha atau JV pemda, dan pilih siapa yang mengerjakan peran (mandiri, vendor, atau anak usaha sendiri) di tab Grup.
 
 ## Struktur
 
@@ -21,7 +23,9 @@ R = rehabilitasi, X = bongkar, F = seluruh Indonesia, Esc/klik kanan = selesai m
 | `js/world.js` | Muat TopoJSON kecamatan + atribut, proyeksi ke km, Path2D, indeks spasial, titik penting |
 | `js/railtypes.js` | 20 jenis rel (tahun tersedia, kecepatan, kapasitas, biaya/km per medan), indeks biaya per tahun |
 | `js/network.js` | Stasiun, ruas, A* lewat graf ketetanggaan kecamatan, biaya & upgrade, jaringan 1945 |
-| `js/sim.js` | Tiap bulan: model gravitasi penumpang & barang dirutekan di jaringan, kapasitas, keuangan, migrasi & pertumbuhan PDRB menurut aksesibilitas |
+| `js/trayek.js` | Trayek: rute antar-stop di atas rel jadi, sarana (rangkaian/gerbong), permintaan asal–tujuan per trayek (penumpang dari penduduk, barang dari industri, tambang→pelabuhan), kapasitas, laba-rugi |
+| `js/company.js` | Grup usaha: induk, anak usaha, JV pemda, peran (awak, perawatan, kebersihan, keamanan, catering) mandiri/vendor/anak usaha, dividen |
+| `js/sim.js` | Tiap bulan: massa stasiun & potensi pasar, menjalankan trayek, pembukuan per perusahaan, migrasi, pertumbuhan PDRB & industrialisasi menurut aksesibilitas |
 | `js/render.js` | Peta canvas (layer dasar di-cache + overlay rel/kereta/ikon) |
 | `js/ui.js`, `js/main.js` | Panel, input, loop, simpan/muat (localStorage) |
 | `js/places.js` | Bandara (perkiraan lokasi & tahun buka) dan peristiwa sejarah |

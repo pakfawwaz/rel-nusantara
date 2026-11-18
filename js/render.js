@@ -153,6 +153,7 @@ export class MapView {
     if (this.highlight != null && this.highlight.k != null) {
       ctx.strokeStyle = '#c62828'; ctx.lineWidth = 2.5 / v.s; ctx.stroke(W.paths[this.highlight.k]);
     }
+    this.drawTrayeks(ctx);
     this.drawRails(ctx, now);
     this.drawPois(ctx);
     this.drawStations(ctx);
@@ -200,9 +201,9 @@ export class MapView {
         ctx.strokeStyle = t.color;
         ctx.setLineDash([4 / v.s, 4 / v.s]);
       } else {
-        ctx.globalAlpha = g.replacedBy ? 0.5 : 1;
+        ctx.globalAlpha = g.replacedBy || !g.ntr ? 0.45 : 1;
         if (this.mode === 'load') {
-          const u = (g.loadP + g.loadF) / t.cap;
+          const u = (g.trains || 0) / (t.cap / 400);
           ctx.strokeStyle = u > 1 ? '#b71c1c' : u > 0.8 ? '#ef6c00' : u > 0.5 ? '#f9a825' : u > 0.05 ? '#43a047' : '#90a4ae';
           ctx.lineWidth = (t.width + Math.min(5, u * 3)) * zw / v.s;
         } else ctx.strokeStyle = t.color;
@@ -220,12 +221,12 @@ export class MapView {
     const sec = now / 1000;
     for (const g of segs) {
       if (g.build > 0) continue;
-      const t = TYPE[g.type], served = g.sP + g.sF;
-      if (served < 1) continue;
-      const count = Math.min(14, Math.max(1, Math.round(served / t.cap * 8)), Math.ceil(g.len * v.s / 25));
+      const t = TYPE[g.type];
+      if (!(g.trains > 0)) continue;
+      const count = Math.min(14, Math.max(1, Math.round(g.trains / 4)), Math.ceil(g.len * v.s / 25));
       const speed = (t.speed / 3600) * 260 / Math.max(g.len, 1); // visual, fraction of segment per second
       const r = Math.max(1.4, Math.min(4, 1.2 * zw * Math.sqrt(v.s))) / v.s;
-      ctx.fillStyle = g.sF > g.sP ? '#263238' : '#fafafa';
+      ctx.fillStyle = (g.loadF || 0) * 2 > (g.loadP || 0) ? '#263238' : '#fafafa';
       ctx.strokeStyle = t.color; ctx.lineWidth = 1 / v.s;
       for (let i = 0; i < count; i++) {
         let u = (sec * speed * (0.9 + (i % 3) * 0.07) + i / count + g.id * 0.137) % 1;
@@ -234,6 +235,28 @@ export class MapView {
         ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.stroke();
       }
     }
+  }
+
+  drawTrayeks(ctx) {
+    const v = this.view, S = this.S;
+    const strokeIds = (ids, color, w, dash) => {
+      ctx.strokeStyle = color; ctx.lineWidth = w / v.s; ctx.setLineDash(dash ? dash.map((d) => d / v.s) : []);
+      for (const id of ids) { const g = S.segById.get(id); if (g) this.strokeSeg(ctx, g); }
+    };
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const t = this.trayekHi;
+    if (t) strokeIds(t.legs.flat(), t.kind === 'K' ? 'rgba(62,39,35,0.35)' : t.kind === 'P' ? 'rgba(21,101,192,0.35)' : 'rgba(106,27,154,0.35)', 12);
+    const d = this.draft;
+    if (d && d.legs.length) strokeIds(d.legs.flat(), 'rgba(198,40,40,0.4)', 12);
+    if (this.draftPreview) strokeIds(this.draftPreview, 'rgba(198,40,40,0.6)', 6, [8, 6]);
+    ctx.setLineDash([]);
+    const W = this.W;
+    const stops = t ? t.stops : d ? d.stops : [];
+    stops.forEach((id, i) => {
+      const s = S.stById.get(id); if (!s) return;
+      ctx.beginPath(); ctx.arc(W.x[s.k], W.y[s.k], 8 / v.s, 0, 6.283);
+      ctx.fillStyle = d && !t ? '#c62828' : '#1a237e'; ctx.fill();
+    });
   }
 
   drawStations(ctx) {

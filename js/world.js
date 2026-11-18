@@ -38,6 +38,7 @@ export async function loadWorld(onProgress) {
     let g = 0; for (const s of GOODS) g += attrs.outputShare[i][s];
     W.goods[i] = g / 10000;
   }
+  W.goods0 = Float32Array.from(W.goods);
 
   // --- TopoJSON decode (quantised, delta-encoded arcs) ---
   const [sx, sy] = topo.transform.scale, [tx, ty] = topo.transform.translate;

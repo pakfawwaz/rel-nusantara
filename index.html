@@ -26,6 +26,8 @@
       <li>🗺️ 7.283 kecamatan, masing-masing dengan penduduk, PDRB dan medan.</li>
       <li>🚆 19 jenis rel: lori, rel konvensional, KRL, rel ganda, kereta cepat, maglev, hyperloop, trem, monorel, MRT, LRT, rel bergigi, funikular, kereta gantung, feri kereta, jembatan laut…</li>
       <li>⚓ ✈ ⛏ 🏭 Sambungkan pelabuhan, bandara, tambang, dan pabrik untuk bonus dan angkutan barang.</li>
+      <li>🚆 Jalankan trayek penumpang, kargo atau campur: atur frekuensi dan jumlah gerbong. Ada trayek yang untung, ada yang rugi.</li>
+      <li>🏢 Susun grup usahamu: anak usaha, JV dengan pemda, catering, alih daya, perawatan, konstruksi, parkir, properti, logistik.</li>
       <li>📈 Kecamatan terlayani rel tumbuh lebih cepat; yang terisolasi ditinggalkan penduduknya.</li>
     </ul>
     <div class="row">
@@ -48,11 +50,12 @@
     </div>
     <div class="chips">
       <div class="chip"><span class="k">Kas</span><span id="cash" class="v"></span></div>
-      <div class="chip"><span class="k">Laba</span><span id="profit" class="v"></span></div>
+      <div class="chip"><span class="k">Laba grup</span><span id="profit" class="v"></span></div>
       <div class="chip"><span class="k">Jaringan</span><span id="km" class="v"></span></div>
+      <div class="chip"><span class="k">Trayek</span><span id="ntr" class="v"></span></div>
       <div class="chip"><span class="k">Penumpang</span><span id="pax" class="v"></span></div>
+      <div class="chip"><span class="k">Barang</span><span id="fr" class="v"></span></div>
       <div class="chip"><span class="k">Penduduk</span><span id="pop" class="v"></span></div>
-      <div class="chip"><span class="k">PDB</span><span id="gdp" class="v"></span></div>
       <div class="chip" title="PDB riil dibanding lintasan sejarah tanpa efek jaringan rel"><span class="k">Efek rel</span><span id="eff" class="v"></span></div>
     </div>
     <div class="searchbox"><input id="search" placeholder="Cari kecamatan / stasiun…" autocomplete="off"><div id="searchres" hidden></div></div>
@@ -62,6 +65,7 @@
     <div id="toolbtns" class="tools">
       <button data-tool="inspect" class="on" title="Inspeksi (I)">🔍<span>Inspeksi</span></button>
       <button data-tool="build" title="Bangun rel (B)">🛤️<span>Bangun</span></button>
+      <button data-tool="trayek" title="Trayek (T)">🚆<span>Trayek</span></button>
       <button data-tool="rehab" title="Rehabilitasi (R)">🔧<span>Rehab</span></button>
       <button data-tool="demolish" title="Bongkar (X)">🧨<span>Bongkar</span></button>
     </div>
@@ -83,7 +87,8 @@
   <aside id="side">
     <nav id="side-tabs">
       <button data-tab="info" class="on">Info</button>
-      <button data-tab="net">Jaringan</button>
+      <button data-tab="tr">Trayek</button>
+      <button data-tab="co">Grup</button>
       <button data-tab="fin">Keuangan</button>
       <button data-tab="stat">Statistik</button>
     </nav>
