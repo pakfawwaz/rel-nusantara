@@ -93,8 +93,14 @@ export class UI {
     let h = `<div class="fam">Jenis trayek baru</div><div class="kinds">${Object.entries(KIND).map(([k, n]) => `<button data-kind="${k}" class="${g.trayekKind === k ? 'on' : ''}"><i style="background:${KCOL[k]}"></i>${n}</button>`).join('')}</div>
       <p class="mt pad">Klik stasiun-stasiun pemberhentian berurutan. Rute dicari lewat rel yang sudah jadi (kargo tidak bisa lewat rel khusus penumpang). Stasiun yang dilewati tapi tidak diklik = tidak berhenti (langsung/ekspres).
       <br><kbd>Enter</kbd>/klik kanan: selesai · <kbd>Esc</kbd>: batal · <kbd>Backspace</kbd>: hapus stop terakhir</p>`;
-    if (d && d.stops.length) h += `<div class="fam">Draf (${d.stops.length} stop)</div><ol class="draft">${d.stops.map((id) => `<li>${esc(S.stById.get(id).name)}</li>`).join('')}</ol>
-      <div class="row pad"><button class="btn primary" data-finish="1" ${d.stops.length < 2 ? 'disabled' : ''}>Buat trayek</button><button class="btn" data-cancel="1">Batal</button></div>`;
+    if (d && (d.stops.length || d.editId)) {
+      const ed = d.editId ? S.trayeks.find((t) => t.id === d.editId) : null;
+      h += `<div class="fam">${ed ? `Ubah rute ${ed.code}` : 'Draf'} (${d.stops.length} stop)</div>
+        <p class="mt pad">Klik stasiun yang <b>dilewati</b> rute untuk menyisipkannya sebagai stop. Stasiun lain ditambahkan di
+        <span class="seg2"><button data-at="start" class="${d.at === 'start' ? 'on' : ''}">awal</button><button data-at="end" class="${d.at !== 'start' ? 'on' : ''}">akhir</button></span></p>
+        <ol class="draft">${d.stops.map((id, i) => `<li>${esc(S.stById.get(id).name)} <button class="x" data-rmstop="${i}" title="Hapus stop (kereta tetap lewat)">✕</button></li>`).join('')}</ol>
+        <div class="row pad"><button class="btn primary" data-finish="1" ${d.stops.length < 2 ? 'disabled' : ''}>${ed ? 'Simpan rute' : 'Buat trayek'}</button><button class="btn" data-cancel="1">Batal</button></div>`;
+    }
     h += `<div class="fam">Trayek (${S.trayeks.length})</div><ul class="trl">${S.trayeks.map((t) => this.trLi(t)).join('')}</ul>`;
     $('#palette').innerHTML = h;
     $('#typedesc').innerHTML = `<b>Trayek</b>: hanya penumpang/barang yang asal & tujuannya sama-sama stop di trayek ini yang naik. Trayek panjang dengan banyak stop menangkap lebih banyak pasangan asal–tujuan, tapi lebih lambat.`;
@@ -112,6 +118,8 @@ export class UI {
     const g = this.g;
     if (b.dataset.kind) { g.trayekKind = b.dataset.kind; g.cancelDraft(); this.renderPalette(); }
     else if (b.dataset.finish) g.finishDraft();
+    else if (b.dataset.rmstop) g.removeStop(+b.dataset.rmstop);
+    else if (b.dataset.at) { g.draft.at = b.dataset.at; this.renderPalette(); }
     else if (b.dataset.cancel) g.cancelDraft();
     else if (b.dataset.tr) this.selectTr(+b.dataset.tr);
   }
@@ -254,7 +262,8 @@ export class UI {
       ${t.kind !== 'K' ? stepper('gp', t.gp, 'Gerbong penumpang', `× ${geo ? geo.capP : 80} kursi`) : ''}
       ${t.kind !== 'P' ? stepper('gb', t.gb, 'Gerbong barang', `× ${geo ? geo.capF : 40} ton`) : ''}
       <div class="row"><button class="btn" data-suggest="1">✨ Sesuaikan dengan permintaan</button>
-      <button class="btn" data-toggle="1">${t.active ? '⏸ Hentikan' : '▶ Jalankan'}</button></div>
+      <button class="btn" data-toggle="1">${t.active ? '⏸ Hentikan' : '▶ Jalankan'}</button>
+      <button class="btn" data-edittr="1">✏️ Ubah stop</button></div>
       <table class="kv">
       <tr><td>Sarana</td><td>${need.R} rangkaian · ${need.cp + need.cb} gerbong</td></tr>
       <tr><td>Kapasitas/arah</td><td>${t.kind !== 'K' ? fmtN(t.capP || 0) + ' pnp' : ''}${t.kind === 'C' ? ' · ' : ''}${t.kind !== 'P' ? fmtN(t.capF || 0) + ' t' : ''}/hari</td></tr>
@@ -417,6 +426,7 @@ export class UI {
     else if (d.suggest && t) g.suggestTrayek(t);
     else if (d.toggle && t) { t.active = !t.active; this.renderSide(); }
     else if (d.deltr && t) g.deleteTrayek(t);
+    else if (d.edittr && t) g.editTrayek(t);
     else if (d.newtr) g.setTool('trayek');
     else if (d.found) g.foundCompany(this.form);
     else if (d.inject) g.injectCompany(+d.inject);

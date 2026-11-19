@@ -248,3 +248,53 @@ export function seedNetwork(S, W) {
     }
   }
 }
+
+// ---------- a new station on track that already exists ----------
+// The track is split at kecamatan k (one it already passes through); trayek that used
+// it keep running over both halves and simply pass the new station without stopping.
+export function planSplit(S, W, g, k) {
+  if (!g || !g.kpath) return { ok: false, err: 'Pilih rel.' };
+  const i = g.kpath.indexOf(k);
+  if (i <= 0 || i >= g.kpath.length - 1) return { ok: false, err: 'Pilih kecamatan yang dilewati rel ini (bukan ujungnya).' };
+  if (S.stByKec.has(k)) return { ok: false, err: 'Sudah ada stasiun di kecamatan ini.' };
+  if (g.replaces || g.replacedBy) return { ok: false, err: 'Ruas ini sedang di-upgrade. Tunggu sampai selesai.' };
+  const t = TYPE[g.type];
+  return { ok: true, g, k, i, cost: stationCost(t) * costIndex(S.y) };
+}
+
+export function commitSplit(S, W, plan) {
+  if (S.cash < plan.cost) return { ok: false, err: 'Kas tidak cukup.' };
+  const { g, k, i } = plan, t = TYPE[g.type];
+  book(S, induk(S), 'Pembangunan rel', -plan.cost);
+  const st = ensureStation(S, W, k);
+  const rawLen = (kp) => { let L = 0; for (let j = 1; j < kp.length; j++) L += Math.hypot(W.x[kp[j]] - W.x[kp[j - 1]], W.y[kp[j]] - W.y[kp[j - 1]]); return L || 1; };
+  const total = rawLen(g.kpath);
+  const half = (kp, a, b) => {
+    const raw = [];
+    for (const kk of t.direct ? [kp[0], kp[kp.length - 1]] : kp) raw.push(W.x[kk], W.y[kk]);
+    const f = rawLen(kp) / total;
+    const h = { ...g, id: S.nextId++, a, b, kpath: kp, pts: chaikin(raw, t.direct ? 0 : 2).map((v) => Math.round(v * 100) / 100),
+      km: g.km * f, cost: (g.cost || 0) * f, loadP: 0, loadF: 0, trains: 0 };
+    delete h.cum; delete h.bb; delete h._off; delete h._offD;
+    prepSeg(h);
+    return h;
+  };
+  const A = half(g.kpath.slice(0, i + 1), g.a, st.id), B = half(g.kpath.slice(i), st.id, g.b);
+  S.segs = S.segs.filter((x) => x !== g);
+  S.segById.delete(g.id);
+  for (const h of [A, B]) { S.segs.push(h); S.segById.set(h.id, h); }
+  for (const tr of S.trayeks) {
+    tr.legs = tr.legs.map((leg, li) => {
+      let cur = tr.stops[li];
+      const out = [];
+      for (const id of leg) {
+        const s = S.segById.get(id) || (id === g.id ? g : null);
+        if (id === g.id) out.push(...(cur === g.a ? [A.id, B.id] : [B.id, A.id]));
+        else out.push(id);
+        if (s) cur = s.a === cur ? s.b : s.a;
+      }
+      return out;
+    });
+  }
+  return { ok: true, st, A, B };
+}

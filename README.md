@@ -15,7 +15,7 @@ powershell -ExecutionPolicy Bypass -File serve.ps1
 lalu buka http://localhost:8790. (Butuh server karena data JSON dimuat via `fetch`.)
 
 Kontrol: seret = geser, gulir = zoom, Spasi = jeda, 1/2/3 = kecepatan, B = bangun, I = inspeksi,
-T = trayek, R = rehabilitasi, X = bongkar, Enter = selesaikan trayek, F = seluruh Indonesia, Esc/klik kanan = selesai menyambung.
+S = stasiun di rel yang ada, T = trayek, R = rehabilitasi, X = bongkar, Enter = selesaikan trayek, F = seluruh Indonesia, Esc/klik kanan = selesai menyambung.
 
 Cara main singkat: bangun rel (🛤️), lalu jalankan trayek (🚆) di atasnya — pendapatan hanya datang dari trayek. Atur frekuensi & gerbong tiap trayek, serahkan trayek ke anak usaha atau JV pemda, dan pilih siapa yang mengerjakan peran (mandiri, vendor, atau anak usaha sendiri) di tab Grup.
 

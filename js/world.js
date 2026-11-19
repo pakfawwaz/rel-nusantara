@@ -7,6 +7,27 @@ export function proj(lon, lat) { return [(lon - LON0) * KX, (LAT0 - lat) * KY]; 
 
 const GOODS = [0, 1, 2, 3, 4, 5, 6]; // food..manufacturing sector indices
 
+// The source polygons are heavily simplified and look angular. Chaikin corner-cutting
+// on each shared TopoJSON arc (end points fixed) rounds them off while neighbouring
+// kecamatan still share exactly the same border, so no gaps or overlaps appear.
+function smoothArc(a, iter) {
+  for (let it = 0; it < iter; it++) {
+    const n = a.length / 2;
+    if (n < 3) return a;
+    const o = new Float32Array((2 * (n - 1)) * 2 + 4);
+    let j = 0;
+    o[j++] = a[0]; o[j++] = a[1];
+    for (let i = 0; i < n - 1; i++) {
+      const x0 = a[2 * i], y0 = a[2 * i + 1], x1 = a[2 * i + 2], y1 = a[2 * i + 3];
+      if (i > 0) { o[j++] = 0.75 * x0 + 0.25 * x1; o[j++] = 0.75 * y0 + 0.25 * y1; }
+      if (i < n - 2) { o[j++] = 0.25 * x0 + 0.75 * x1; o[j++] = 0.25 * y0 + 0.75 * y1; }
+    }
+    o[j++] = a[2 * n - 2]; o[j++] = a[2 * n - 1];
+    a = o.subarray(0, j);
+  }
+  return a;
+}
+
 export async function loadWorld(onProgress) {
   const names = ['kecamatan.topo.json', 'kecamatan_geo.json', 'kecamatan_attrs.json', 'seeds.json', 'neighbors.json'];
   let done = 0;
@@ -50,7 +71,7 @@ export async function loadWorld(onProgress) {
       const p = proj(ax * sx + tx, ay * sy + ty);
       out[2 * i] = p[0]; out[2 * i + 1] = p[1];
     }
-    return out;
+    return smoothArc(out, 2);
   });
   const ring = (ids) => {
     const pts = [];

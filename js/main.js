@@ -1,6 +1,6 @@
 import { loadWorld } from './world.js';
 import { TYPE, costIndex } from './railtypes.js';
-import { reindex, seedNetwork, planSegment, commitSegment, removeSeg, removeStation, rehabCost, segName, prepSeg } from './network.js';
+import { reindex, seedNetwork, planSegment, commitSegment, planSplit, commitSplit, removeSeg, removeStation, rehabCost, segName, prepSeg } from './network.js';
 import { calibrate, monthTick, runTraffic, computeAccess, fmtM, poiActive, yearFrac, closeBooks } from './sim.js';
 import { findLeg, newTrayek, configure, suggest, geometry, fleetNeed, fleetCost, runTrayeks, trayekAccess, KIND } from './trayek.js';
 import { newGroup, createCompany, compById, dividend, inject, book, induk, BIZ } from './company.js';
@@ -8,7 +8,7 @@ import { MapView } from './render.js';
 import { UI } from './ui.js';
 
 const SAVE_KEY = 'rel-nusantara-v2';
-const SPEEDS = [0, 0.35, 1, 3]; // months per second
+const SPEEDS = [0, 0.1, 0.25, 0.7]; // months per second (normal: 10 s per month)
 const $ = (s) => document.querySelector(s);
 
 class Game {
@@ -140,6 +140,7 @@ class Game {
       else if (e.key === 'Enter' && this.tool === 'trayek') this.finishDraft();
       else if (e.key === 'Backspace' && this.draft && this.draft.stops.length) { this.draft.stops.pop(); this.draft.legs.pop(); this.refreshDraft(); }
       else if (e.key === 't' || e.key === 'T') this.setTool('trayek');
+      else if (e.key === 's' || e.key === 'S') this.setTool('station');
       else if (e.key === 'b' || e.key === 'B') this.setTool('build');
       else if (e.key === 'i' || e.key === 'I') this.setTool('inspect');
       else if (e.key === 'x' || e.key === 'X') this.setTool('demolish');
@@ -188,7 +189,7 @@ class Game {
     $('#palwrap').classList.toggle('dim', t !== 'build' && t !== 'trayek');
     this.ui.renderPalette();
     $('#map').dataset.tool = t;
-    const hints = { inspect: 'Klik untuk info. Seret untuk geser, gulir untuk zoom.', build: 'Klik kecamatan asal, lalu tujuan. Klik kanan / Esc untuk selesai.', demolish: 'Klik jalur untuk membongkar.', rehab: 'Klik jalur rusak (garis merah putus-putus) untuk memperbaiki.', trayek: 'Klik stasiun pemberhentian berurutan. Enter / klik kanan untuk membuat trayek.' };
+    const hints = { inspect: 'Klik untuk info. Seret untuk geser, gulir untuk zoom.', build: 'Klik kecamatan asal, lalu tujuan. Klik kanan / Esc untuk selesai.', demolish: 'Klik jalur untuk membongkar.', rehab: 'Klik jalur rusak (garis merah putus-putus) untuk memperbaiki.', trayek: 'Klik stasiun pemberhentian berurutan. Enter / klik kanan untuk membuat trayek.', station: 'Arahkan ke rel yang sudah ada, klik kecamatan yang dilewatinya untuk membuka stasiun baru.' };
     $('#hint').textContent = hints[t];
   }
 
@@ -197,6 +198,7 @@ class Game {
   hover(px, py) {
     const map = this.map, W = this.W;
     const [x, y] = map.toWorld(px, py);
+    if (this.tool === 'station') { this.hoverSplit(px, py, x, y); return; }
     const st = this.stationAt(px, py);
     const k = st ? st.k : W.kecAt(x, y);
     if (k !== map.hoverK) {
@@ -259,6 +261,7 @@ class Game {
       return;
     }
     if (this.tool === 'trayek') { if (st) this.addStop(st); return; }
+    if (this.tool === 'station') { this.clickSplit(x, y, px, py); return; }
     if (this.tool === 'demolish') { const g = this.segAt(px, py); if (g) this.demolish(g); else if (st) this.deleteStation(st); return; }
     if (this.tool === 'rehab') { const g = this.segAt(px, py); if (g) this.rehab(g); return; }
     // inspect
@@ -298,6 +301,29 @@ class Game {
     this.ui.renderSide(); this.ui.renderTop();
   }
 
+  // ---------- new station on existing track ----------
+  splitAt(x, y, px, py) {
+    const g = this.segAt(px, py), k = this.W.kecAt(x, y);
+    return { g, k, plan: g && k >= 0 ? planSplit(this.S, this.W, g, k) : null };
+  }
+  hoverSplit(px, py, x, y) {
+    const { g, k, plan } = this.splitAt(x, y, px, py), W = this.W;
+    this.map.hoverK = plan && plan.ok ? k : -1;
+    if (!g) { this.ui.tip(px, py, k >= 0 ? `<span class="mt">Arahkan ke rel</span>` : null); return; }
+    this.ui.tip(px, py, plan.ok ? `🚉 Stasiun baru di <b>${W.name[k]}</b><br>pada ${segName(this.S, g)}<br>Rp ${fmtM(plan.cost)} · trayek yang lewat tidak otomatis berhenti` : `<span class="neg">✖ ${plan.err}</span>`);
+  }
+  clickSplit(x, y, px, py) {
+    const { g, k, plan } = this.splitAt(x, y, px, py);
+    if (!plan) return;
+    if (!plan.ok) { this.ui.news('✖ ' + plan.err, 'bad'); return; }
+    const r = commitSplit(this.S, this.W, plan);
+    if (!r.ok) { this.ui.news('✖ ' + r.err, 'bad'); return; }
+    this.ui.news(`🚉 Stasiun ${r.st.name} dibuka di rel ${segName(this.S, r.A)} / ${segName(this.S, r.B)} — Rp ${fmtM(plan.cost)}. Ubah stop trayek untuk berhenti di sini.`, 'good');
+    this.map.laneSig = null;
+    this.ui.select({ kind: 'st', id: r.st.id });
+    this.ui.renderTop();
+  }
+
   // ---------- trayek ----------
   mass() { return runTraffic(this.S, this.W).mass; }
 
@@ -327,33 +353,76 @@ class Game {
     const d = this.draft, map = this.map, S = this.S;
     if (!st) { this.ui.tip(px, py, null); map.draftPreview = null; this._hoverSt = null; return; }
     if (!d || !d.stops.length) { this.ui.tip(px, py, `🚉 <b>${st.name}</b><br><span class="mt">klik untuk stop pertama</span>`); return; }
-    const last = d.stops[d.stops.length - 1];
+    if (d.stops.includes(st.id)) { map.draftPreview = null; this._hoverSt = null; this.ui.tip(px, py, `🚉 <b>${st.name}</b> (sudah jadi stop)`); return; }
+    if (this.routeSplit(d, st.id)) { map.draftPreview = null; this._hoverSt = null; this.ui.tip(px, py, `🚉 <b>${st.name}</b><br>dilewati rute — klik untuk menjadikannya stop`); return; }
+    const last = d.stops[d.stops.length - 1], first = d.stops[0], atStart = d.at === 'start';
     if (st.id !== this._hoverSt) {
       this._hoverSt = st.id;
-      this._hoverLeg = st.id === last ? null : findLeg(S, last, st.id, this.trayekKind, yearFrac(S));
+      this._hoverLeg = atStart ? findLeg(S, st.id, first, this.trayekKind, yearFrac(S)) : findLeg(S, last, st.id, this.trayekKind, yearFrac(S));
       map.draftPreview = this._hoverLeg;
     }
     const leg = this._hoverLeg;
-    if (st.id === last) { this.ui.tip(px, py, `🚉 <b>${st.name}</b> (stop terakhir)`); return; }
     if (!leg) { this.ui.tip(px, py, `<span class="neg">✖ Tidak ada rel jadi yang bisa dilalui trayek ${KIND[this.trayekKind].toLowerCase()} ke ${st.name}.</span>`); return; }
     let km = 0; for (const id of leg) km += S.segById.get(id).km;
     this.ui.tip(px, py, `→ <b>${st.name}</b><br>${km.toFixed(0)} km · lewat ${leg.length - 1} stasiun tanpa berhenti<br><span class="mt">klik untuk tambah stop</span>`);
   }
 
-  addStop(st) {
+  // If the draft route already passes station `sid` between two stops, where to split.
+  routeSplit(d, sid) {
     const S = this.S;
-    if (!this.draft) this.draft = { stops: [], legs: [] };
+    for (let li = 0; li < d.legs.length; li++) {
+      let cur = d.stops[li];
+      const leg = d.legs[li];
+      for (let j = 0; j < leg.length - 1; j++) {
+        const g = S.segById.get(leg[j]);
+        if (!g) break;
+        cur = g.a === cur ? g.b : g.a;
+        if (cur === sid) return { li, a: leg.slice(0, j + 1), b: leg.slice(j + 1) };
+      }
+    }
+    return null;
+  }
+
+  addStop(st) {
+    const S = this.S, y = yearFrac(S);
+    if (!this.draft) this.draft = { stops: [], legs: [], at: 'end' };
     const d = this.draft;
     if (!d.stops.length) {
       if (!S.segs.some((g) => g.build <= 0 && (g.a === st.id || g.b === st.id))) { this.ui.news('✖ Stasiun ini belum punya rel yang beroperasi.', 'bad'); return; }
       d.stops.push(st.id);
-    } else {
-      if (d.stops.includes(st.id)) { this.ui.news('✖ Stasiun ini sudah jadi pemberhentian.', 'bad'); return; }
-      const leg = findLeg(S, d.stops[d.stops.length - 1], st.id, this.trayekKind, yearFrac(S));
-      if (!leg) { this.ui.news(`✖ Tidak ada rel yang bisa dilalui ke ${st.name}.`, 'bad'); return; }
-      d.stops.push(st.id); d.legs.push(leg);
+    } else if (d.stops.includes(st.id)) { this.ui.news('✖ Stasiun ini sudah jadi pemberhentian.', 'bad'); return; }
+    else {
+      const sp = this.routeSplit(d, st.id);
+      if (sp) { d.stops.splice(sp.li + 1, 0, st.id); d.legs.splice(sp.li, 1, sp.a, sp.b); }
+      else if (d.at === 'start') {
+        const leg = findLeg(S, st.id, d.stops[0], this.trayekKind, y);
+        if (!leg) { this.ui.news(`✖ Tidak ada rel yang bisa dilalui dari ${st.name}.`, 'bad'); return; }
+        d.stops.unshift(st.id); d.legs.unshift(leg);
+      } else {
+        const leg = findLeg(S, d.stops[d.stops.length - 1], st.id, this.trayekKind, y);
+        if (!leg) { this.ui.news(`✖ Tidak ada rel yang bisa dilalui ke ${st.name}.`, 'bad'); return; }
+        d.stops.push(st.id); d.legs.push(leg);
+      }
     }
     this.refreshDraft();
+  }
+
+  // Drop a stop; trains keep using the same track and just pass through.
+  removeStop(i) {
+    const d = this.draft;
+    if (!d) return;
+    if (i === 0) { d.stops.shift(); d.legs.shift(); }
+    else if (i === d.stops.length - 1) { d.stops.pop(); d.legs.pop(); }
+    else { d.stops.splice(i, 1); d.legs.splice(i - 1, 2, [...d.legs[i - 1], ...d.legs[i]]); }
+    this.refreshDraft();
+  }
+
+  editTrayek(t) {
+    this.setTool('trayek');
+    this.trayekKind = t.kind;
+    this.draft = { stops: [...t.stops], legs: t.legs.map((l) => [...l]), at: 'end', editId: t.id };
+    this.refreshDraft();
+    this.ui.news(`✏️ Mengubah rute ${t.code}. Klik stasiun untuk menambah, ✕ untuk menghapus, lalu Simpan rute.`);
   }
 
   refreshDraft() { this.map.draft = this.draft; this.map.draftPreview = null; this._hoverSt = null; this.ui.renderPalette(); }
@@ -362,6 +431,18 @@ class Game {
   finishDraft() {
     const d = this.draft, S = this.S, y = yearFrac(S);
     if (!d || d.stops.length < 2) return;
+    if (d.editId) {
+      const tr = S.trayeks.find((t) => t.id === d.editId);
+      const old = { stops: tr.stops, legs: tr.legs };
+      tr.stops = d.stops; tr.legs = d.legs; tr.broken = false;
+      const r = configure(S, tr, tr.freq, tr.gp, tr.gb, y);
+      if (!r.ok) { Object.assign(tr, old); this.ui.news('✖ ' + r.err, 'bad'); return; }
+      this.ui.news(`✏️ Rute ${tr.code} diperbarui: ${tr.stops.length} stop${r.cost ? ` (sarana ${r.cost > 0 ? 'dibeli' : 'dijual'} Rp ${fmtM(Math.abs(r.cost))})` : ''}.`, 'good');
+      this.cancelDraft();
+      this.ui.selectTr(tr.id);
+      this.ui.renderTop();
+      return;
+    }
     const tr = newTrayek(S, d.stops, d.legs, this.trayekKind);
     S.trayeks.push(tr);
     const sg = suggest(S, this.W, this.mass(), tr, y);
@@ -452,7 +533,7 @@ class Game {
   save(silent) {
     const S = this.S, W = this.W;
     const clean = { ...S, stById: undefined, stByKec: undefined, segById: undefined,
-      segs: S.segs.map(({ cum, len, bb, ...g }) => g),
+      segs: S.segs.map(({ cum, len, bb, _off, _offD, ...g }) => g),
       trayeks: S.trayeks.map(({ geo, pairs, ...t }) => t) };
     const r = (a, d) => Array.from(a, (v) => Math.round(v * d) / d);
     try {

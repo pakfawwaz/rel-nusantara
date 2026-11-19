@@ -18,6 +18,8 @@ const DIV = ['#a33a2c', '#c9704f', '#e2a585', '#efd2bd', '#eee9dc', '#c9dfc2', '
 const BLU = ['#eceae2', '#dbe3e6', '#c3d6df', '#a6c4d6', '#87b0cc', '#6898bf', '#4c7fb0', '#36669c', '#244f85', '#163a6b'];
 const TER = ['#cfe0b5', '#e3ecc3', '#d9c79a', '#b39472'];
 
+const LANE_PRI = { konv: 0, ganda: 0, standar: 0, berat: 0, semicepat: 0, lori: 0, krl: 1, hsr: 2, maglev: 2, hyperloop: 2, lrt: 3, mrt: 3, monorel: 4, agt: 4, trem: 5, gigi: 6, funikular: 6, gantung: 7, ferry: 8, laut: 8 };
+
 export class MapView {
   constructor(canvas, W, S) {
     this.c = canvas; this.ctx = canvas.getContext('2d');
@@ -171,8 +173,55 @@ export class MapView {
     return !(g.bb[2] < x0 || g.bb[0] > x1 || g.bb[3] < y0 || g.bb[1] > y1);
   }
 
-  strokeSeg(ctx, g) {
-    const p = g.pts;
+  // Rails that share a corridor are drawn side by side: each overlapping segment
+  // gets its own lane, a fixed screen-pixel offset that tapers to 0 at stations.
+  updateLanes() {
+    const S = this.S;
+    const sig = S.segs.length + ':' + S.segs.reduce((a, g) => a + g.id * 7 + g.type.length, 0);
+    if (sig === this.laneSig) return;
+    this.laneSig = sig;
+    const segs = [...S.segs].sort((a, b) => (LANE_PRI[a.type] ?? 9) - (LANE_PRI[b.type] ?? 9) || a.id - b.id);
+    const sets = new Map(segs.map((g) => [g.id, new Set(g.kpath || [])]));
+    const lanes = new Map(), placed = [];
+    for (const g of segs) {
+      const mine = sets.get(g.id), used = new Set();
+      for (const h of placed) {
+        const same = (h.a === g.a && h.b === g.b) || (h.a === g.b && h.b === g.a);
+        let shared = 0;
+        if (!same) for (const k of sets.get(h.id)) if (mine.has(k) && ++shared >= 2) break;
+        if (same || shared >= 2) used.add(lanes.get(h.id));
+      }
+      let lane = 0;
+      for (const c of [0, 1, -1, 2, -2, 3, -3, 4, -4]) if (!used.has(c)) { lane = c; break; }
+      lanes.set(g.id, lane);
+      placed.push(g);
+    }
+    this.lanes = lanes;
+  }
+
+  segPts(g) {
+    const lane = this.lanes ? this.lanes.get(g.id) || 0 : 0;
+    if (!lane) return g.pts;
+    const zw = Math.max(0.7, Math.min(2.2, Math.sqrt(this.view.s) * 1.1));
+    const d = lane * 5 * zw / this.view.s;
+    if (g._offD === d) return g._off;
+    const p = g.pts, n = p.length / 2, out = new Array(p.length);
+    const L = g.len || 1, taper = Math.min(L * 0.25, 14 / this.view.s);
+    let cum = 0;
+    for (let i = 0; i < n; i++) {
+      if (i) cum += Math.hypot(p[2 * i] - p[2 * i - 2], p[2 * i + 1] - p[2 * i - 1]);
+      const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+      let tx = p[2 * b] - p[2 * a], ty = p[2 * b + 1] - p[2 * a + 1];
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const f = Math.min(1, cum / taper, (L - cum) / taper);
+      out[2 * i] = p[2 * i] - ty * d * f; out[2 * i + 1] = p[2 * i + 1] + tx * d * f;
+    }
+    g._offD = d; g._off = out;
+    return out;
+  }
+
+  strokeSeg(ctx, g, center) {
+    const p = center ? g.pts : this.segPts(g);
     ctx.beginPath();
     ctx.moveTo(p[0], p[1]);
     for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
@@ -183,6 +232,7 @@ export class MapView {
     const v = this.view, S = this.S;
     const zw = Math.max(0.7, Math.min(2.2, Math.sqrt(v.s) * 1.1));
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    this.updateLanes();
     const segs = S.segs.filter((g) => this.inView(g));
     // casing
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -231,10 +281,16 @@ export class MapView {
       for (let i = 0; i < count; i++) {
         let u = (sec * speed * (0.9 + (i % 3) * 0.07) + i / count + g.id * 0.137) % 1;
         if (i % 2) u = 1 - u;
-        const [x, y] = pointOnSeg(g, u);
+        const [x, y] = this.lanePoint(g, u);
         ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.stroke();
       }
     }
+  }
+
+  lanePoint(g, u) {
+    const p = this.segPts(g);
+    if (p === g.pts) return pointOnSeg(g, u);
+    return pointOnSeg({ pts: p, cum: g.cum, len: g.len }, u);
   }
 
   drawTrayeks(ctx) {
