@@ -162,7 +162,7 @@ export class UI {
       <li><b>🚆 Trayek</b>: pilih Penumpang/Kargo/Campur, klik stasiun-stasiun pemberhentian, Enter. Atur frekuensi & jumlah gerbong — ada trayek yang untung, ada yang rugi.</li>
       <li><b>🏢 Perusahaan</b>: dirikan anak usaha (catering, alih daya, perawatan, konstruksi, parkir, properti, logistik) atau JV dengan pemda, lalu serahkan trayek atau kontrak peran ke mereka.</li>
       <li>Kargo mengikuti industri setempat: pelabuhan ⚓, tambang ⛏, pabrik 🏭 dan kawasan manufaktur. Coba Tj. Priok–Bekasi, atau batubara Muara Enim–Panjang (Babaranjang).</li></ol>
-      <p class="mt">Spasi: jeda · 1/2/3: kecepatan · B: bangun · T: trayek · I: inspeksi · X: bongkar · R: rehab</p></div>`;
+      <p class="mt">Spasi: jeda · 1/2/3: kecepatan · B: bangun · T: trayek · I: inspeksi · S: stasiun · X: bongkar</p></div>`;
     if (sel.kind === 'kec') return this.kecHtml(sel.id);
     if (sel.kind === 'st') { const s = S.stById.get(sel.id); return s ? this.stHtml(s) : ''; }
     if (sel.kind === 'seg') { const g = S.segById.get(sel.id); return g ? this.segHtml(g) : ''; }
@@ -217,7 +217,7 @@ export class UI {
       <table class="kv">
       <tr><td>Panjang</td><td>${g.km.toFixed(1)} km</td></tr>
       <tr><td>Kecepatan efektif</td><td>${sp.toFixed(0)} km/j · ${(g.km / sp * 60).toFixed(0)} menit</td></tr>
-      <tr><td>Kondisi</td><td class="${g.cond < 0.5 ? 'neg' : ''}">${pct(g.cond)}</td></tr>
+      <tr><td>Kondisi</td><td class="${g.cond < 0.5 ? 'neg' : ''}">${pct(g.cond)}${g.cond < 0.98 && g.build <= 0 ? ` · direhab otomatis (Rp ${fmtM(rehabCost(S, g) * Math.min(1 - g.cond, 0.02) / (1 - g.cond))}/bln)` : ''}</td></tr>
       <tr><td>Kereta/hari</td><td class="${(g.trains || 0) > capT ? 'neg' : ''}">${(g.trains || 0).toFixed(0)} / ${capT.toFixed(0)}${(g.trains || 0) > capT ? ' — macet! upgrade' : ''}</td></tr>
       <tr><td>Penumpang lewat</td><td>${fmtN(g.loadP || 0)} /hari</td></tr>
       <tr><td>Barang lewat</td><td>${fmtN(g.loadF || 0)} t/hari</td></tr>
@@ -226,7 +226,6 @@ export class UI {
       </table>
       <h4>Trayek lewat (${trs.length})</h4><ul class="trl">${trs.map((x) => this.trLi(x)).join('') || '<li class="mt">Rel nganggur — tidak menghasilkan apa-apa.</li>'}</ul>
       <div class="row">
-      ${g.build <= 0 && g.cond < 0.98 ? `<button class="btn" data-rehab="${g.id}">🔧 Rehabilitasi (Rp ${fmtM(rehabCost(S, g))})</button>` : ''}
       <button class="btn danger" data-demo="${g.id}">🧨 Bongkar</button></div>
       <p class="mt">Upgrade: bangun jenis rel lain di keluarga yang sama (${FAMILIES[t.family]}) di antara dua stasiun ini — potongan 50%. Trayek otomatis pindah ke rel baru.</p>`;
   }

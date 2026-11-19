@@ -144,7 +144,6 @@ class Game {
       else if (e.key === 'b' || e.key === 'B') this.setTool('build');
       else if (e.key === 'i' || e.key === 'I') this.setTool('inspect');
       else if (e.key === 'x' || e.key === 'X') this.setTool('demolish');
-      else if (e.key === 'r' || e.key === 'R') this.setTool('rehab');
       else if (e.key === 'f' || e.key === 'F') map.fit();
     });
     $('#speed').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) this.setSpeed(+b.dataset.speed); });

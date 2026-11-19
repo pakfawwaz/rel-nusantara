@@ -1,11 +1,12 @@
 // Monthly simulation: traffic (gravity model routed over the network), finances,
 // and population / economic growth that follows accessibility.
 import { TYPE, costIndex, techSpeed, roadSpeed, airAvailable, interp } from './railtypes.js';
-import { heapPush, heapPop, segName } from './network.js';
+import { heapPush, heapPop, segName, rehabCost } from './network.js';
 import { EVENTS } from './places.js';
 import { runTrayeks, trayekAccess } from './trayek.js';
 import { induk, book, overhead, scaleEff } from './company.js';
 
+export const REHAB_STEP = 0.02; // condition restored per month
 const START_PAX = 600000, START_FR = 60000; // per day, used to calibrate the gravity constants
 
 const POP_RATE = [[1945, 0.010], [1950, 0.019], [1960, 0.023], [1975, 0.024], [1990, 0.016], [2005, 0.013], [2020, 0.009], [2045, 0.005]];
@@ -275,15 +276,25 @@ export function monthTick(S, W, ui) {
     if (sub) { book(S, sub, biz === 'parkir' ? 'Pendapatan parkir' : 'Sewa & ritel', gross); book(S, sub, 'Biaya operasi', -gross * 0.55 * scaleEff(S.stations.length / 10)); }
     else book(S, ind, biz === 'parkir' ? 'Konsesi parkir (vendor)' : 'Sewa ritel (vendor)', gross * fee);
   }
+
+  // wear and automatic rehabilitation: worn or war-damaged track is repaired a little
+  // every month (up to 2 condition points), charged straight to the holding as an expense
+  let rehab = 0;
+  for (const g of S.segs) {
+    if (g.build > 0) continue;
+    g.cond = Math.max(0.2, g.cond - 0.0008);
+    const dc = Math.min(1 - g.cond, REHAB_STEP);
+    if (dc <= 0.001) continue;
+    rehab += rehabCost(S, g) * dc / (1 - g.cond);
+    g.cond += dc;
+  }
+  book(S, ind, 'Rehabilitasi jalur', -rehab);
   for (const c of S.companies) book(S, c, 'Overhead', -overhead(S, c));
   closeBooks(S);
   const L = ind.last;
   S.last = { rev: L.revenue, profit: L.profit, group: S.groupProfit, pax: ty.pax, fr: ty.fr, pkm: ty.pkm, tkm: ty.tkm, potPax: tr.pax, natPop: natPop * (1 + rp), natGdp };
   S.yearAcc = S.yearAcc || { rev: 0, profit: 0, pax: 0, fr: 0 };
   S.yearAcc.rev += L.revenue; S.yearAcc.profit += S.groupProfit; S.yearAcc.pax += ty.pax * 30.4; S.yearAcc.fr += ty.fr * 30.4;
-
-  // slow wear: older track loses condition unless rehabilitated
-  for (const g of S.segs) if (g.build <= 0) g.cond = Math.max(0.2, g.cond - 0.0008);
 
   // calendar
   S.m++;
@@ -300,7 +311,7 @@ export function monthTick(S, W, ui) {
 }
 
 // Money moved to or from capital (fleet, equity, dividends, construction) is not profit.
-export const CAPITAL = new Set(['Beli sarana', 'Jual sarana', 'Setoran modal', 'Dividen diterima', 'Dividen dibayar', 'Pembangunan rel', 'Rehabilitasi', 'Modal awal']);
+export const CAPITAL = new Set(['Beli sarana', 'Jual sarana', 'Setoran modal', 'Dividen diterima', 'Dividen dibayar', 'Pembangunan rel', 'Modal awal']);
 export function closeBooks(S) {
   let group = 0;
   for (const c of S.companies) {

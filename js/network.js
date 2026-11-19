@@ -207,7 +207,7 @@ export function removeStation(S, s) {
 }
 
 export function rehabCost(S, g) {
-  return 0.4 * g.km * TYPE[g.type].cost * (g.tf || 1) * costIndex(S.y) * (1 - g.cond);
+  return 0.2 * g.km * TYPE[g.type].cost * (g.tf || 1) * costIndex(S.y) * (1 - g.cond);
 }
 
 export function segName(S, g) {

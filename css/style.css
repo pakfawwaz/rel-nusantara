@@ -69,7 +69,7 @@ kbd { background: var(--paper-2); border: 1px solid var(--line); border-radius: 
 #searchres span { color: var(--muted); font-size: 11px; margin-left: 4px; }
 
 #tools { grid-area: tools; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-.tools { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
+.tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
 .tools button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 0; font-size: 17px; display: flex; flex-direction: column; align-items: center; }
 .tools button span { font-size: 10px; color: var(--ink-2); }
 .tools button.on { background: var(--ink); border-color: var(--ink); }
