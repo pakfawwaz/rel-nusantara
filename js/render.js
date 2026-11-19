@@ -5,6 +5,7 @@ import { pointOnSeg, density } from './network.js';
 import { poiActive, yearFrac } from './sim.js';
 
 export const MODES = {
+  plain: { name: 'Polos', legend: [], unit: 'peta transit, rel menonjol' },
   pop: { name: 'Kepadatan', legend: ['<25', '100', '400', '1.6rb', '6.4rb+'], unit: 'jiwa/km²' },
   econ: { name: 'PDRB/kapita', legend: ['¼×', '½×', '1×', '2×', '4×'], unit: 'vs nasional' },
   growth: { name: 'Pertumbuhan', legend: ['−2%', '0', '+2%', '+4%', '+6%'], unit: 'penduduk/tahun' },
@@ -26,7 +27,7 @@ export class MapView {
     this.W = W; this.S = S;
     this.base = document.createElement('canvas');
     this.bctx = this.base.getContext('2d');
-    this.mode = 'pop';
+    this.mode = 'plain';
     this.view = { x: W.width / 2, y: W.height / 2, s: 0.2 };
     this.cacheView = null;
     this.dirty = true; this.binsDirty = true;
@@ -79,6 +80,7 @@ export class MapView {
       }
       case 'access': return BLU[clamp(Math.floor((W.access ? W.access[k] : 0) * 11), 0, 9)];
       case 'terrain': return W.swamp[k] ? '#a9c8b0' : TER[W.terrain[k]];
+      case 'plain': return '#f3efe4';
       case 'load': return '#e9e6dc';
     }
     return '#ddd';
@@ -120,7 +122,7 @@ export class MapView {
     for (const [c, p] of this.bins) { ctx.fillStyle = c; ctx.fill(p); }
     if (v.s > 1.1) {
       const [x0, y0] = this.toWorld(0, 0), [x1, y1] = this.toWorld(this.w, this.h);
-      ctx.strokeStyle = 'rgba(70,55,40,' + Math.min(0.45, (v.s - 1.1) * 0.25) + ')';
+      ctx.strokeStyle = 'rgba(70,55,40,' + Math.min(0.45, (v.s - 1.1) * 0.25) * (this.mode === 'plain' ? 0.45 : 1) + ')';
       ctx.lineWidth = 0.6 / v.s;
       for (let k = 0; k < W.n; k++) {
         const b = k * 4;
@@ -202,11 +204,11 @@ export class MapView {
   segPts(g) {
     const lane = this.lanes ? this.lanes.get(g.id) || 0 : 0;
     if (!lane) return g.pts;
-    const zw = Math.max(0.7, Math.min(2.2, Math.sqrt(this.view.s) * 1.1));
-    const d = lane * 5 * zw / this.view.s;
+    const lw = this.lineW();
+    const d = lane * (lw * 1.15 + 4) / this.view.s;
     if (g._offD === d) return g._off;
     const p = g.pts, n = p.length / 2, out = new Array(p.length);
-    const L = g.len || 1, taper = Math.min(L * 0.25, 14 / this.view.s);
+    const L = g.len || 1, taper = Math.min(L * 0.3, (lw * 2.2 + 6) / this.view.s);
     let cum = 0;
     for (let i = 0; i < n; i++) {
       if (i) cum += Math.hypot(p[2 * i] - p[2 * i - 2], p[2 * i + 1] - p[2 * i - 1]);
@@ -228,61 +230,65 @@ export class MapView {
     ctx.stroke();
   }
 
+
+
+  // Transit-map look: thick flat lines of constant screen width, a visible gap between
+  // parallel lanes, no outlines.
+  lineW() { return Math.max(3, Math.min(8, 3 + 1.6 * Math.log2(1 + this.view.s * 2))); }
+
   drawRails(ctx, now) {
     const v = this.view, S = this.S;
-    const zw = Math.max(0.7, Math.min(2.2, Math.sqrt(v.s) * 1.1));
+    const lw = this.lineW();
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     this.updateLanes();
     const segs = S.segs.filter((g) => this.inView(g));
-    // casing
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    for (const g of segs) {
-      if (g.build > 0) continue;
-      const t = TYPE[g.type];
-      ctx.lineWidth = (t.width * zw + 2) / v.s;
-      ctx.setLineDash([]);
-      this.strokeSeg(ctx, g);
-    }
+    const wOf = (t) => lw * (0.7 + t.width / 9);
     for (const g of segs) {
       const t = TYPE[g.type];
-      ctx.lineWidth = t.width * zw / v.s;
+      ctx.lineWidth = wOf(t) / v.s;
       if (g.build > 0) {
-        ctx.globalAlpha = 0.75;
+        ctx.globalAlpha = 0.6;
         ctx.strokeStyle = t.color;
-        ctx.setLineDash([4 / v.s, 4 / v.s]);
+        ctx.lineWidth = wOf(t) * 0.55 / v.s;
+        ctx.setLineDash([lw * 1.2 / v.s, lw * 1.2 / v.s]);
       } else {
-        ctx.globalAlpha = g.replacedBy || !g.ntr ? 0.45 : 1;
+        ctx.globalAlpha = g.replacedBy || !g.ntr ? 0.35 : 1;
         if (this.mode === 'load') {
           const u = (g.trains || 0) / (t.cap / 400);
           ctx.strokeStyle = u > 1 ? '#b71c1c' : u > 0.8 ? '#ef6c00' : u > 0.5 ? '#f9a825' : u > 0.05 ? '#43a047' : '#90a4ae';
-          ctx.lineWidth = (t.width + Math.min(5, u * 3)) * zw / v.s;
         } else ctx.strokeStyle = t.color;
-        ctx.setLineDash(t.dash ? t.dash.map((d) => d * zw / v.s) : []);
+        ctx.setLineDash(t.key === 'ferry' || t.key === 'gantung' ? [lw * 1.6 / v.s, lw / v.s] : []);
       }
       this.strokeSeg(ctx, g);
       if (g.cond < 0.5 && g.build <= 0 && v.s > 0.5) {
-        ctx.setLineDash([1 / v.s, 6 / v.s]); ctx.strokeStyle = '#d32f2f'; ctx.lineWidth = (t.width * zw + 1) / v.s;
+        ctx.setLineDash([0.1 / v.s, lw * 1.5 / v.s]); ctx.strokeStyle = '#fff'; ctx.lineWidth = wOf(t) * 0.45 / v.s;
         this.strokeSeg(ctx, g);
       }
     }
     ctx.globalAlpha = 1; ctx.setLineDash([]);
-    // trains
+    // trains: small rounded carriages that ride their own lane
     if (v.s < 0.12) return;
     const sec = now / 1000;
+    const len = lw * 2 / v.s, wid = lw * 0.95 / v.s;
     for (const g of segs) {
-      if (g.build > 0) continue;
+      if (g.build > 0 || !(g.trains > 0)) continue;
       const t = TYPE[g.type];
-      if (!(g.trains > 0)) continue;
-      const count = Math.min(14, Math.max(1, Math.round(g.trains / 4)), Math.ceil(g.len * v.s / 25));
+      const count = Math.min(14, Math.max(1, Math.round(g.trains / 4)), Math.ceil(g.len * v.s / 30));
       const speed = (t.speed / 3600) * 260 / Math.max(g.len, 1); // visual, fraction of segment per second
-      const r = Math.max(1.4, Math.min(4, 1.2 * zw * Math.sqrt(v.s))) / v.s;
-      ctx.fillStyle = (g.loadF || 0) * 2 > (g.loadP || 0) ? '#263238' : '#fafafa';
-      ctx.strokeStyle = t.color; ctx.lineWidth = 1 / v.s;
+      const cargo = (g.loadF || 0) * 2 > (g.loadP || 0);
+      const eps = Math.min(0.02, 1 / Math.max(g.len * v.s, 1));
       for (let i = 0; i < count; i++) {
         let u = (sec * speed * (0.9 + (i % 3) * 0.07) + i / count + g.id * 0.137) % 1;
         if (i % 2) u = 1 - u;
-        const [x, y] = this.lanePoint(g, u);
-        ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); ctx.stroke();
+        const [x, y] = this.lanePoint(g, u), [x2, y2] = this.lanePoint(g, Math.min(1, u + eps));
+        ctx.save();
+        ctx.translate(x, y); ctx.rotate(Math.atan2(y2 - y, x2 - x));
+        ctx.fillStyle = cargo ? '#263238' : '#ffffff';
+        ctx.strokeStyle = cargo ? '#263238' : t.color; ctx.lineWidth = lw * 0.35 / v.s;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-len / 2, -wid / 2, len, wid, wid * 0.3); else ctx.rect(-len / 2, -wid / 2, len, wid);
+        ctx.fill(); ctx.stroke();
+        ctx.restore();
       }
     }
   }
@@ -301,16 +307,16 @@ export class MapView {
     };
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     const t = this.trayekHi;
-    if (t) strokeIds(t.legs.flat(), t.kind === 'K' ? 'rgba(62,39,35,0.35)' : t.kind === 'P' ? 'rgba(21,101,192,0.35)' : 'rgba(106,27,154,0.35)', 12);
+    if (t) strokeIds(t.legs.flat(), t.kind === 'K' ? 'rgba(62,39,35,0.35)' : t.kind === 'P' ? 'rgba(21,101,192,0.35)' : 'rgba(106,27,154,0.35)', this.lineW() * 3.2);
     const d = this.draft;
-    if (d && d.legs.length) strokeIds(d.legs.flat(), 'rgba(198,40,40,0.4)', 12);
+    if (d && d.legs.length) strokeIds(d.legs.flat(), 'rgba(198,40,40,0.4)', this.lineW() * 3.2);
     if (this.draftPreview) strokeIds(this.draftPreview, 'rgba(198,40,40,0.6)', 6, [8, 6]);
     ctx.setLineDash([]);
     const W = this.W;
     const stops = t ? t.stops : d ? d.stops : [];
     stops.forEach((id, i) => {
       const s = S.stById.get(id); if (!s) return;
-      ctx.beginPath(); ctx.arc(W.x[s.k], W.y[s.k], 8 / v.s, 0, 6.283);
+      ctx.beginPath(); ctx.arc(W.x[s.k], W.y[s.k], (this.lineW() * 1.6 + 4) / v.s, 0, 6.283);
       ctx.fillStyle = d && !t ? '#c62828' : '#1a237e'; ctx.fill();
     });
   }
@@ -318,16 +324,18 @@ export class MapView {
   drawStations(ctx) {
     const v = this.view, S = this.S, W = this.W;
     const [x0, y0] = this.toWorld(-20, -20), [x1, y1] = this.toWorld(this.w + 20, this.h + 20);
+    const lw = this.lineW();
     const zr = Math.max(0.6, Math.min(2, Math.sqrt(v.s)));
     for (const s of S.stations) {
       const x = W.x[s.k], y = W.y[s.k];
       if (x < x0 || x > x1 || y < y0 || y > y1) continue;
       const big = s.rid + s.fr;
-      const r = (1.6 + Math.min(5, Math.log10(1 + big / 300))) * zr;
+      // transit-map station: white disc with a thick dark ring, wide enough to cover the lanes
+      const r = (lw * 0.9 + 1.5 + Math.min(4, Math.log10(1 + big / 2000) * 1.5)) * (v.s < 0.4 ? 0.7 : 1);
       if (v.s < 0.25 && big < 3000) continue;
       ctx.beginPath(); ctx.arc(x, y, r / v.s, 0, 6.283);
-      ctx.fillStyle = s.acc > 0 ? '#fff' : '#ddd'; ctx.fill();
-      ctx.lineWidth = 1.4 / v.s; ctx.strokeStyle = '#3b2a1a'; ctx.stroke();
+      ctx.fillStyle = s.rid > 0 || s.fr > 0 ? '#fff' : '#e8e4da'; ctx.fill();
+      ctx.lineWidth = Math.max(1.6, lw * 0.42) / v.s; ctx.strokeStyle = '#222'; ctx.stroke();
       if (this.highlight && this.highlight.st === s.id) { ctx.lineWidth = 3 / v.s; ctx.strokeStyle = '#c62828'; ctx.stroke(); }
     }
   }
